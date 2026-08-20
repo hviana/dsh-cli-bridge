@@ -23,7 +23,7 @@ The built-in delegates hand you the final result. This one hands you the whole
 run.
 
 [![npm](https://img.shields.io/npm/v/dsh-cli-bridge?color=cb3837&logo=npm)](https://www.npmjs.com/package/dsh-cli-bridge)
-[![ci](https://github.com/hviana/dsh-cli-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/hviana/dsh-cli-bridge/actions/workflows/ci.yml)
+[![ci](https://github.com/hviana/dsh-cli-bridge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/hviana/dsh-cli-bridge/actions/workflows/ci.yml)
 [![source-available](https://img.shields.io/badge/licence-source--available-8b5cf6)](./LICENSE)
 [![dsh plugin](https://img.shields.io/badge/dsh-plugin-5a67d8)](https://github.com/topics/dsh-plugin)
 [![sponsor](https://img.shields.io/github/sponsors/hviana?label=sponsor&color=db61a2&logo=github)](https://github.com/sponsors/hviana)

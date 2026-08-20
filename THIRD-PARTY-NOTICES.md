@@ -1,7 +1,7 @@
 # Third-party notices
 
-`dsh-cli-bridge` is source-available software (see [LICENSE](./LICENSE)), and
-its published bundles inline the open-source components listed below so that the
+`dsh-cli-bridge` is source-available software (see [LICENSE](./LICENSE)), and its
+published bundles inline the open-source components listed below so that the
 plugin loads inside a harness profile that resolves nothing beside it.
 
 Those components remain governed by their own licences, reproduced in full in
@@ -16,16 +16,16 @@ from what was actually built.
 
 **lib/index.js (the Node half)**
 
-| Component                  | Version    | Licence      |
-| -------------------------- | ---------- | ------------ |
-| `@deepseek-ai/cordis`      | 4.0.1      | MIT          |
-| `@deepseek-ai/cosmokit`    | 1.8.2      | MIT          |
-| `@deepseek-ai/dsh-llm`     | 0.0.1-rc.1 | BSD-3-Clause |
-| `@deepseek-ai/dsh-scope`   | 0.0.1-rc.1 | BSD-3-Clause |
+| Component | Version | Licence |
+|---|---|---|
+| `@deepseek-ai/cordis` | 4.0.1 | MIT |
+| `@deepseek-ai/cosmokit` | 1.8.2 | MIT |
+| `@deepseek-ai/dsh-llm` | 0.0.1-rc.1 | BSD-3-Clause |
+| `@deepseek-ai/dsh-scope` | 0.0.1-rc.1 | BSD-3-Clause |
 | `@deepseek-ai/dsh-session` | 0.0.1-rc.1 | BSD-3-Clause |
 | `@deepseek-ai/dsh-timeout` | 0.0.1-rc.1 | BSD-3-Clause |
-| `@deepseek-ai/dsh-tools`   | 0.0.1-rc.1 | BSD-3-Clause |
-| `@deepseek-ai/schemastery` | 3.18.1     | MIT          |
+| `@deepseek-ai/dsh-tools` | 0.0.1-rc.1 | BSD-3-Clause |
+| `@deepseek-ai/schemastery` | 3.18.1 | MIT |
 
 **lib/client.cjs (the browser half)**
 

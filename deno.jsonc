@@ -4,7 +4,7 @@
   // YAML parser cannot read. It is a machine-managed artifact, never source,
   // so it is excluded instead of reformatted.
   "fmt": {
-    "exclude": ["pnpm-lock.yaml"],
+    "exclude": ["pnpm-lock.yaml", "THIRD-PARTY-NOTICES.md"],
     // The source is written single-quoted with semicolons; match it so a
     // format pass does not churn every string in the tree.
     "singleQuote": true,

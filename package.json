@@ -1,16 +1,26 @@
 {
   "name": "dsh-cli-bridge",
   "version": "0.1.0",
-  "description": "DeepSeek Harness plugin that delegates tasks to the Claude Code and Codex CLIs \u2014 multi-account, model and effort aware, with live host-to-web streaming and a summary-only model surface.",
+  "description": "DeepSeek Harness (DSH) plugin that delegates coding tasks to the Claude Code and Codex agent CLIs and streams the whole run live — autonomous control, multi-account, automatic install, git worktrees, and any Anthropic-compatible endpoint.",
   "keywords": [
     "dsh",
     "dsh-plugin",
     "deepseek-harness",
+    "deepseek",
     "claude-code",
     "codex",
+    "anthropic",
+    "openai",
+    "ai",
+    "ai-agent",
+    "coding-agent",
+    "multi-agent",
+    "llm",
     "cli",
-    "agent",
-    "delegation"
+    "delegation",
+    "developer-tools",
+    "automation",
+    "typescript"
   ],
   "license": "SEE LICENSE IN LICENSE",
   "author": "hviana",
@@ -44,6 +54,7 @@
     "lib/types/**/*.d.ts",
     "cordis.patch.yml",
     "README.md",
+    "CONTRIBUTING.md",
     "LICENSE",
     "THIRD-PARTY-NOTICES.md"
   ],
