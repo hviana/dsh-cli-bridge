@@ -9,6 +9,8 @@ import {
   describeDelegation,
   describeMerge,
   directionCopy,
+  displayPath,
+  foldTranscript,
   formatBytes,
   formatDuration,
   formatUsage,
@@ -358,5 +360,119 @@ describe('statusLabel', () => {
     ['completed', 'completed'],
   ])('labels %s', (status, expected) => {
     expect(statusLabel(status)).toBe(expected);
+  });
+});
+
+describe('foldTranscript', () => {
+  it('folds one call reported twice into one row that fills in', () => {
+    const activities: Activity[] = [
+      { type: 'tool', id: 't1', name: 'Bash', status: 'started', detail: 'ls' },
+      {
+        type: 'tool',
+        id: 't1',
+        name: 'Bash',
+        status: 'completed',
+        exitCode: 0,
+        output: 'a.ts',
+      },
+    ];
+    expect(foldTranscript(activities)).toEqual([{
+      key: '0-tool',
+      activity: {
+        type: 'tool',
+        id: 't1',
+        name: 'Bash',
+        status: 'completed',
+        detail: 'ls',
+        exitCode: 0,
+        output: 'a.ts',
+      },
+    }]);
+  });
+
+  it('keeps the command the call was started with', () => {
+    const [row] = foldTranscript([
+      {
+        type: 'tool',
+        id: 't1',
+        name: 'command',
+        status: 'started',
+        detail: 'pnpm build',
+      },
+      { type: 'tool', id: 't1', name: 'command', status: 'failed' },
+    ]);
+    expect(row?.activity).toMatchObject({
+      status: 'failed',
+      detail: 'pnpm build',
+    });
+  });
+
+  it('leaves unidentified calls apart, rather than merging strangers', () => {
+    const rows = foldTranscript([
+      { type: 'tool', name: 'Bash', status: 'started', detail: 'one' },
+      { type: 'tool', name: 'Bash', status: 'started', detail: 'two' },
+    ]);
+    expect(rows).toHaveLength(2);
+  });
+
+  it('does not fold two different calls together', () => {
+    const rows = foldTranscript([
+      { type: 'tool', id: 'a', name: 'Bash', status: 'started' },
+      { type: 'tool', id: 'b', name: 'Bash', status: 'started' },
+    ]);
+    expect(rows).toHaveLength(2);
+  });
+
+  it('takes the counters out of the conversation', () => {
+    const rows = foldTranscript([
+      { type: 'message', text: 'hi' },
+      { type: 'usage', usage: { outputTokens: 3 } },
+    ]);
+    expect(rows.map((row) => row.activity.type)).toEqual(['message']);
+  });
+
+  it('preserves the order things first appeared in', () => {
+    const rows = foldTranscript([
+      { type: 'tool', id: 't1', name: 'Bash', status: 'started' },
+      { type: 'message', text: 'between' },
+      { type: 'tool', id: 't1', name: 'Bash', status: 'completed' },
+      { type: 'file', path: '/repo/a.ts', change: 'add' },
+    ]);
+    expect(rows.map((row) => row.activity.type)).toEqual([
+      'tool',
+      'message',
+      'file',
+    ]);
+  });
+
+  it('gives every row a key of its own', () => {
+    const rows = foldTranscript([
+      { type: 'message', text: 'one' },
+      { type: 'message', text: 'two' },
+      { type: 'notice', level: 'info', text: 'three' },
+    ]);
+    expect(new Set(rows.map((row) => row.key)).size).toBe(rows.length);
+  });
+});
+
+describe('displayPath', () => {
+  it.each<[string, string | undefined, string]>([
+    ['/repo/src/a.ts', '/repo', 'src/a.ts'],
+    ['/repo/src/a.ts', '/repo/', 'src/a.ts'],
+    ['/repo/src/a.ts', undefined, '/repo/src/a.ts'],
+    ['/repo/src/a.ts', '', '/repo/src/a.ts'],
+    ['/elsewhere/a.ts', '/repo', '/elsewhere/a.ts'],
+    ['/repository/a.ts', '/repo', '/repository/a.ts'],
+  ])('renders %s under %s', (path, root, expected) => {
+    expect(displayPath(path, root)).toBe(expected);
+  });
+
+  it('reads a file activity relative to the workspace', () => {
+    expect(
+      describeActivity(
+        { type: 'file', path: '/repo/a.ts', change: 'add' },
+        '/repo',
+      ),
+    ).toBe('add a.ts');
   });
 });

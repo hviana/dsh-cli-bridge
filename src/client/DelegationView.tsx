@@ -84,6 +84,9 @@ export function DelegationView(
         <RunStream
           key={round.id}
           view={round}
+          // The delegation knows where its work happened, and the rounds render
+          // their file paths relative to it.
+          root={delegation.workspace.path}
           {
             // Only the round in progress is worth a long activity list; the ones
             // already decided are context.

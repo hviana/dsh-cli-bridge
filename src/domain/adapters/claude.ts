@@ -39,7 +39,9 @@ import {
   type LoginPlanRequest,
   type SpawnPlan,
   type TaskPlanRequest,
+  TOOL_OUTPUT_BYTES,
 } from './contract.ts';
+import { boundHead } from '../text.ts';
 
 /**
  * The harness permission mode, in Claude Code's own vocabulary.
@@ -167,16 +169,18 @@ class ClaudeDecoder implements DelegateDecoder {
       readString(input, 'pattern') ??
       readString(input, 'description') ??
       path;
-    const change = FILE_TOOLS[name];
     return [
       {
         type: 'tool',
         name,
         status: 'started',
+        // The id is what pairs this row with the result that follows it, so a
+        // watcher sees one call filling in rather than two unrelated lines.
+        ...id === undefined ? {} : { id },
         ...detail === undefined ? {} : { detail },
       },
-      ...change !== undefined && path !== undefined
-        ? [{ type: 'file', path, change } as const]
+      ...FILE_TOOLS[name] !== undefined && path !== undefined
+        ? [{ type: 'file', path, change: FILE_TOOLS[name] } as const]
         : [],
     ];
   }
@@ -190,10 +194,15 @@ class ClaudeDecoder implements DelegateDecoder {
       const name = (id === undefined ? undefined : this.pendingTools.get(id)) ??
         'tool';
       if (id !== undefined) this.pendingTools.delete(id);
+      const output = toolResultText(block['content']);
       activities.push({
         type: 'tool',
         name,
         status: block['is_error'] === true ? 'failed' : 'completed',
+        ...id === undefined ? {} : { id },
+        ...output === undefined
+          ? {}
+          : { output: boundHead(output, TOOL_OUTPUT_BYTES) },
       });
     }
     return activities;
@@ -212,6 +221,39 @@ class ClaudeDecoder implements DelegateDecoder {
     if (usage !== undefined) this.usage = usage;
     return usage === undefined ? [] : [{ type: 'usage', usage }];
   }
+}
+
+/**
+ * Flatten what a `tool_result` block returned into readable text.
+ *
+ * Claude Code sends either a bare string or the same content-block array an
+ * assistant message uses. Only text blocks carry something a transcript can
+ * show; an image block is named rather than rendered, so a screenshot does not
+ * read as an empty result.
+ * @param content - the block's `content` field, in either shape.
+ * @returns the text, or `undefined` when the result carried none.
+ */
+function toolResultText(content: unknown): string | undefined {
+  if (typeof content === 'string') {
+    const text = content.trim();
+    return text.length === 0 ? undefined : text;
+  }
+  if (!Array.isArray(content)) return undefined;
+  const parts: string[] = [];
+  for (const raw of content) {
+    if (typeof raw === 'string') {
+      parts.push(raw);
+      continue;
+    }
+    if (typeof raw !== 'object' || raw === null) continue;
+    const block = raw as Record<string, unknown>;
+    const type = readString(block, 'type');
+    const text = readString(block, 'text');
+    if (text !== undefined) parts.push(text);
+    else if (type !== undefined && type !== 'text') parts.push(`[${type}]`);
+  }
+  const joined = parts.join('\n').trim();
+  return joined.length === 0 ? undefined : joined;
 }
 
 /**

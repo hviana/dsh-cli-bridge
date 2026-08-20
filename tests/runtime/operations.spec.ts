@@ -47,6 +47,22 @@ describe('state', () => {
     expect((await operations.state('session-a')).runs).toHaveLength(1);
     expect((await operations.state('session-b')).runs).toHaveLength(0);
   });
+
+  it('shows every run to the unscoped read the human channel makes', async () => {
+    const { operations } = build();
+    const started = await operations.startTask({
+      cli: 'claude',
+      prompt: 'x',
+      cwd: '/repo',
+      permission: 'read-only',
+      sessionId: 'session-a',
+    });
+    await started.settled;
+    // The browser cannot name the session whose card it renders, and fencing
+    // this read is what left the panel's run list permanently empty while the
+    // frames kept arriving.
+    expect((await operations.state()).runs).toHaveLength(1);
+  });
 });
 
 describe('control', () => {

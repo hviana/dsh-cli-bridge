@@ -57,7 +57,27 @@ export const STYLES = `
 .${CSS_PREFIX}-activities { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .${CSS_PREFIX}-activity { display: flex; gap: 6px; align-items: baseline; }
 .${CSS_PREFIX}-activity-kind { opacity: 0.5; min-width: 62px; font-size: 10px; text-transform: uppercase; flex-shrink: 0; }
-.${CSS_PREFIX}-activity-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.${CSS_PREFIX}-activity-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+/* A tool row carries a command, its outcome and its output, so its text side is
+ * a column: the output block belongs under the command rather than beside it. */
+.${CSS_PREFIX}-activity-body { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; }
+.${CSS_PREFIX}-command-line { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.${CSS_PREFIX}-command {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+  overflow-wrap: anywhere; min-width: 0;
+}
+.${CSS_PREFIX}-outcome { font-size: 10px; opacity: 0.5; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.${CSS_PREFIX}-outcome[data-status="failed"] { color: #d64545; opacity: 1; }
+/* The delegate's own output. Bounded height so a long result grows a scrollbar
+ * here instead of pushing the rest of the turn off the screen; the adapter has
+ * already bounded the bytes, this bounds the space they take. */
+.${CSS_PREFIX}-output {
+  margin: 0; padding: 4px 8px; max-height: 200px; overflow: auto;
+  border-left: 2px solid currentColor; opacity: 0.75;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
 .${CSS_PREFIX}-activity[data-tone="error"] .${CSS_PREFIX}-activity-text { color: #d64545; }
 .${CSS_PREFIX}-activity[data-tone="warn"] .${CSS_PREFIX}-activity-text { color: #c98a1b; }
 .${CSS_PREFIX}-activity[data-tone="reasoning"] .${CSS_PREFIX}-activity-text { opacity: 0.65; font-style: italic; }

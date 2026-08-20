@@ -339,7 +339,11 @@ export class BridgeOperations {
 
   /**
    * Everything a panel or a status command shows, in one read.
-   * @param sessionId - the asking session; scopes the run list.
+   *
+   * An UNSCOPED read is the human channel asking, and it sees everything — the
+   * same rule the delegation list already followed. A scoped read is a session
+   * asking about its own work and stays fenced to it.
+   * @param sessionId - the asking session; omit for the human channel.
    * @returns runs, accounts, and toolchain state.
    */
   async state(sessionId?: string): Promise<BridgeState> {
@@ -348,7 +352,9 @@ export class BridgeOperations {
       this.toolchain.statuses(),
     ]);
     return {
-      runs: this.runs.list(sessionId),
+      runs: sessionId === undefined
+        ? this.runs.listAll()
+        : this.runs.list(sessionId),
       delegations: this.listDelegations(sessionId),
       accounts,
       toolchain,

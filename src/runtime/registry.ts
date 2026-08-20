@@ -169,6 +169,25 @@ export class RunRegistry {
   }
 
   /**
+   * Every run, whoever started it.
+   *
+   * This is the HUMAN channel's read, and it is deliberately not fenced. The
+   * person watching owns every session in their own browser, and a page cannot
+   * name the session whose card it is rendering — so fencing this read by
+   * session is what left the panel's run list permanently empty: the frames kept
+   * arriving while the state read that repairs a late or reconnected subscriber
+   * answered with nothing. Reachability is already fenced one layer out, by the
+   * channel's trust check.
+   *
+   * The model-facing surface keeps {@link list} and its session fence, because
+   * there ids are guessable and authorization is the boundary.
+   * @returns snapshots in registration order.
+   */
+  listAll(): RunSnapshot[] {
+    return [...this.records.values()].map((record) => record.state.snapshot);
+  }
+
+  /**
    * Read one run.
    * @param run - the run id.
    * @param sessionId - the asking session.

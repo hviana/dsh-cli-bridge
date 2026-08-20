@@ -31,7 +31,9 @@ import {
   type LoginPlanRequest,
   type SpawnPlan,
   type TaskPlanRequest,
+  TOOL_OUTPUT_BYTES,
 } from './contract.ts';
+import { boundHead } from '../text.ts';
 
 /**
  * The harness permission mode, in Codex's own vocabulary.
@@ -139,12 +141,20 @@ class CodexDecoder implements DelegateDecoder {
       case 'command_execution': {
         const command = readString(item, 'command');
         const exitCode = readNumber(item, 'exit_code');
+        const id = readString(item, 'id');
+        const output = commandOutput(item);
         return [{
           type: 'tool',
           name: 'command',
           status: itemStatus(item, completed),
+          // Codex reports the same item twice — started, then completed. The id
+          // is what makes those ONE row that fills in with its own output.
+          ...id === undefined ? {} : { id },
           ...command === undefined ? {} : { detail: command },
           ...exitCode === undefined ? {} : { exitCode },
+          ...output === undefined
+            ? {}
+            : { output: boundHead(output, TOOL_OUTPUT_BYTES) },
         }];
       }
       case 'file_change': {
@@ -162,19 +172,27 @@ class CodexDecoder implements DelegateDecoder {
       case 'mcp_tool_call': {
         const server = readString(item, 'server');
         const tool = readString(item, 'tool') ?? 'tool';
+        const id = readString(item, 'id');
+        const output = commandOutput(item);
         return [{
           type: 'tool',
           name: server === undefined ? tool : `${server}.${tool}`,
           status: itemStatus(item, completed),
+          ...id === undefined ? {} : { id },
+          ...output === undefined
+            ? {}
+            : { output: boundHead(output, TOOL_OUTPUT_BYTES) },
         }];
       }
       case 'web_search': {
         if (!completed) return [];
         const query = readString(item, 'query');
+        const id = readString(item, 'id');
         return [{
           type: 'tool',
           name: 'web_search',
           status: 'completed',
+          ...id === undefined ? {} : { id },
           ...query === undefined ? {} : { detail: query },
         }];
       }
@@ -195,6 +213,27 @@ class CodexDecoder implements DelegateDecoder {
         return [];
     }
   }
+}
+
+/**
+ * What a Codex item RETURNED, in whichever field this release put it in.
+ *
+ * `aggregated_output` is what `codex exec --json` reports for a command today;
+ * the alternatives are read as well because the field has been renamed across
+ * releases and a transcript that silently loses the output is worse than one
+ * that reads a field it did not have to.
+ * @param item - the item event.
+ * @returns the text, or `undefined` when the item carried none.
+ */
+function commandOutput(
+  item: Record<string, unknown>,
+): string | undefined {
+  const text = readString(item, 'aggregated_output') ??
+    readString(item, 'formatted_output') ??
+    readString(item, 'output') ??
+    readString(item, 'result');
+  const trimmed = text?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
 }
 
 /** Map an item's own status field onto the shared tool status. */

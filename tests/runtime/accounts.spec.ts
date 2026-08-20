@@ -302,6 +302,27 @@ describe('resolving accounts', () => {
       /configured default/u,
     );
   });
+
+  it('accepts the composite id every listing shows', async () => {
+    const { store } = build();
+    await store.add({ cli: 'claude', id: 'work', auth: 'session' });
+    // `claude/work` is exactly what the account listing prints, so it is the
+    // string a caller copies back — and it names the same account.
+    expect((await store.resolve('claude', 'claude/work'))?.id).toBe('work');
+  });
+
+  it('still refuses a composite id naming another delegate', async () => {
+    const { store } = build();
+    await store.add({ cli: 'codex', id: 'work', auth: 'session' });
+    await expect(store.resolve('codex', 'claude/work')).rejects.toMatchObject({
+      code: 'UNKNOWN_ACCOUNT',
+    });
+  });
+
+  it('takes the composite id for the ambient account too', async () => {
+    const { store } = build();
+    expect(await store.resolve('claude', 'claude/ambient')).toBeUndefined();
+  });
 });
 
 describe('removing accounts', () => {

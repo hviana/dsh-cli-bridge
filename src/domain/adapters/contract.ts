@@ -101,6 +101,18 @@ export interface DecodedState {
 }
 
 /**
+ * Byte budget for the excerpt of a tool result an adapter publishes.
+ *
+ * The bound belongs HERE, at the seam where a delegate's bytes first enter the
+ * plugin, and not in the view: a single `cat` of a large file would otherwise
+ * travel through the channel and sit in every subscriber's memory before
+ * anything decided it was too long to read. Generous enough for the output a
+ * person actually reads at a glance; the untouched transcript stays one click
+ * away in the raw log.
+ */
+export const TOOL_OUTPUT_BYTES = 2_000;
+
+/**
  * Stateful projection of one delegate's stdout onto the shared vocabulary.
  *
  * `push` is called with complete lines in order; anything the decoder cannot

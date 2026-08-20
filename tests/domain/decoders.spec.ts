@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { adapterFor, adapters } from '../../src/domain/adapters/index.ts';
 import type { DelegateDecoder } from '../../src/domain/adapters/index.ts';
+import { TOOL_OUTPUT_BYTES } from '../../src/domain/adapters/contract.ts';
+import { byteLength } from '../../src/domain/text.ts';
 import type { Activity } from '../../src/shared/protocol.ts';
 
 /** Feed a transcript line by line and collect everything it produced. */
@@ -54,9 +56,27 @@ describe('claude decoder', () => {
     expect(drain(decoder, transcript)).toEqual([
       { type: 'reasoning', text: 'weigh the options' },
       { type: 'message', text: 'Starting.' },
-      { type: 'tool', name: 'Bash', status: 'started', detail: 'npm test' },
-      { type: 'tool', name: 'Bash', status: 'completed' },
-      { type: 'tool', name: 'Write', status: 'started', detail: '/repo/a.ts' },
+      {
+        type: 'tool',
+        id: 't1',
+        name: 'Bash',
+        status: 'started',
+        detail: 'npm test',
+      },
+      {
+        type: 'tool',
+        id: 't1',
+        name: 'Bash',
+        status: 'completed',
+        output: 'ok',
+      },
+      {
+        type: 'tool',
+        id: 't2',
+        name: 'Write',
+        status: 'started',
+        detail: '/repo/a.ts',
+      },
       { type: 'file', path: '/repo/a.ts', change: 'add' },
       { type: 'notice', level: 'warn', text: 'API retry 2: overloaded' },
       {
@@ -106,7 +126,45 @@ describe('claude decoder', () => {
         '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true}]}}',
       ),
     )
-      .toEqual([{ type: 'tool', name: 'Bash', status: 'failed' }]);
+      .toEqual([{ type: 'tool', id: 't1', name: 'Bash', status: 'failed' }]);
+  });
+
+  it('carries the result content, which is the half a watcher came to see', () => {
+    const decoder = adapterFor('claude').decoder();
+    decoder.push(
+      '{"type":"assistant","message":{"content":[' +
+        '{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}',
+    );
+    expect(
+      decoder.push(
+        '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[' +
+          '{"type":"text","text":"a.ts\\nb.ts"},{"type":"image","source":{}}]}]}}',
+      ),
+    ).toEqual([{
+      type: 'tool',
+      id: 't1',
+      name: 'Bash',
+      status: 'completed',
+      output: 'a.ts\nb.ts\n[image]',
+    }]);
+  });
+
+  it('bounds a result that would otherwise travel the channel whole', () => {
+    const decoder = adapterFor('claude').decoder();
+    decoder.push(
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}',
+    );
+    const [activity] = decoder.push(
+      `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"${
+        'x'.repeat(10_000)
+      }"}]}}`,
+    );
+    expect(activity?.type === 'tool' && activity.output).toMatch(/truncated/u);
+    expect(
+      byteLength(
+        (activity?.type === 'tool' ? activity.output : undefined) ?? '',
+      ),
+    ).toBeLessThanOrEqual(TOOL_OUTPUT_BYTES);
   });
 
   it('names an unmatched tool result generically instead of throwing', () => {
@@ -116,7 +174,12 @@ describe('claude decoder', () => {
         '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"gone"}]}}',
       ),
     )
-      .toEqual([{ type: 'tool', name: 'tool', status: 'completed' }]);
+      .toEqual([{
+        type: 'tool',
+        id: 'gone',
+        name: 'tool',
+        status: 'completed',
+      }]);
   });
 
   it('stays quiet while the account is not throttled', () => {
@@ -178,7 +241,8 @@ describe('codex decoder', () => {
     '{"type":"thread.started","thread_id":"th1"}',
     '{"type":"turn.started"}',
     '{"type":"item.started","item":{"id":"i1","type":"command_execution","command":"pnpm build","status":"in_progress"}}',
-    '{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"pnpm build","exit_code":0,"status":"completed"}}',
+    '{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"pnpm build",' +
+    '"aggregated_output":"built in 2s","exit_code":0,"status":"completed"}}',
     '{"type":"item.completed","item":{"id":"i2","type":"file_change","status":"completed","changes":[' +
     '{"path":"/repo/a.ts","kind":"update"},{"path":"/repo/b.ts","kind":"add"}]}}',
     '{"type":"item.completed","item":{"id":"i3","type":"reasoning","text":"weigh the options"}}',
@@ -192,22 +256,26 @@ describe('codex decoder', () => {
     expect(drain(decoder, transcript)).toEqual([
       {
         type: 'tool',
+        id: 'i1',
         name: 'command',
         status: 'started',
         detail: 'pnpm build',
       },
       {
         type: 'tool',
+        id: 'i1',
         name: 'command',
         status: 'completed',
         detail: 'pnpm build',
         exitCode: 0,
+        output: 'built in 2s',
       },
       { type: 'file', path: '/repo/a.ts', change: 'update' },
       { type: 'file', path: '/repo/b.ts', change: 'add' },
       { type: 'reasoning', text: 'weigh the options' },
       {
         type: 'tool',
+        id: 'i4',
         name: 'web_search',
         status: 'completed',
         detail: 'rolldown banner',

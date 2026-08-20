@@ -145,10 +145,28 @@ export type Activity =
   /** A tool or command the delegate ran. */
   | {
     readonly type: 'tool';
+    /**
+     * The delegate's own id for this call, when it gives one.
+     *
+     * The start and the result of ONE call carry the SAME value, which is what
+     * lets a watcher see one row that fills in rather than two rows that look
+     * like two calls. A delegate that ids nothing degrades to the old
+     * behaviour — separate entries — instead of merging unrelated calls.
+     */
+    readonly id?: string;
     readonly name: string;
     readonly detail?: string;
     readonly status: 'started' | 'completed' | 'failed';
     readonly exitCode?: number;
+    /**
+     * Bounded excerpt of what the call RETURNED.
+     *
+     * This is the half of the delegate's I/O a person actually came to watch:
+     * without it the transcript says a command ran but never what came back.
+     * It is bounded by the adapter — at the seam where the delegate's bytes
+     * enter the plugin — so the channel never carries an unbounded payload.
+     */
+    readonly output?: string;
   }
   /** A file the delegate created, changed, or removed. */
   | {

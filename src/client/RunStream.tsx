@@ -1,19 +1,23 @@
 /**
  * The live view of one run — shared by the tool card and the panel.
  *
- * It renders the DECODED activities as the primary surface and keeps the raw
- * transcript one click away. That order matters: the activity list is the same
- * normalized vocabulary for both delegates, while the raw log is the escape
- * hatch for when something goes wrong inside one of them.
+ * It reads as a TRANSCRIPT of what the delegate did: one row per call, showing
+ * the command and what came back from it, the way the same work would read if
+ * the harness had run it itself. The rows are folded (see `foldTranscript`), so
+ * a call that reports itself twice is one row that fills in rather than two that
+ * look like two calls, and the raw transcript stays one click away for when
+ * something goes wrong inside a delegate.
  *
  * @module dsh-cli-bridge/client/RunStream
  */
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import type { Activity } from '../shared/protocol.ts';
 import {
   activityKindLabel,
   activityTone,
   describeActivity,
+  foldTranscript,
   formatBytes,
   formatUsage,
   runElapsed,
@@ -25,21 +29,24 @@ import type { RunView } from './store.ts';
 /** What {@link RunStream} needs. */
 export interface RunStreamProps {
   readonly view: RunView;
-  /** Activities shown before the list scrolls; the rest stay in the log. */
+  /** Rows shown before the list scrolls; the rest stay in the log. */
   readonly visibleActivities?: number;
+  /** Workspace root, so file paths read relative to it. */
+  readonly root?: string;
   /** Extra controls rendered in the header, such as a cancel button. */
   readonly actions?: ReactNode;
 }
 
-/** One run's header, activity list, question, and raw log. */
+/** One run's header, transcript, question, and raw log. */
 export function RunStream(
-  { view, visibleActivities = 40, actions }: RunStreamProps,
+  { view, visibleActivities = 40, root, actions }: RunStreamProps,
 ): ReactNode {
   const [showLog, setShowLog] = useState(false);
   const status = view.end?.status ?? view.snapshot?.status ?? 'starting';
-  const activities = view.activities.slice(
-    Math.max(0, view.activities.length - visibleActivities),
-  );
+  // Folding comes FIRST: the cap is a number of rows a person reads, not a
+  // number of events the delegate happened to emit for them.
+  const rows = foldTranscript(view.activities);
+  const visible = rows.slice(Math.max(0, rows.length - visibleActivities));
 
   return (
     <div className={cls('row')}>
@@ -52,21 +59,26 @@ export function RunStream(
         {actions}
       </div>
 
-      {activities.length > 0 && (
+      {visible.length > 0 && (
         <ul className={cls('activities')}>
-          {activities.map((activity, position) => (
+          {visible.map((row) => (
             <li
-              // Activities are append-only, so the index is a stable identity.
-              key={`${String(position)}-${activity.type}`}
+              key={row.key}
               className={cls('activity')}
-              data-tone={activityTone(activity)}
+              data-tone={activityTone(row.activity)}
             >
-              <span className={cls('activity-kind')}>
-                {activityKindLabel(activity.type)}
-              </span>
-              <span className={cls('activity-text')}>
-                {describeActivity(activity)}
-              </span>
+              {row.activity.type === 'tool'
+                ? <ToolRow activity={row.activity} />
+                : (
+                  <>
+                    <span className={cls('activity-kind')}>
+                      {activityKindLabel(row.activity.type)}
+                    </span>
+                    <span className={cls('activity-text')}>
+                      {describeActivity(row.activity, root)}
+                    </span>
+                  </>
+                )}
             </li>
           ))}
         </ul>
@@ -96,6 +108,44 @@ export function RunStream(
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * One tool call: what was run, and what it returned.
+ *
+ * The NAME leads, because `Bash` or `Write` is what a person scans for — the
+ * word "tool" was never the information. The outcome is stated only once it is
+ * known, so a running call reads as running instead of claiming an exit code it
+ * does not have yet.
+ * @param props - the folded tool activity.
+ * @returns the row's content.
+ */
+function ToolRow(
+  { activity }: { readonly activity: Activity & { readonly type: 'tool' } },
+): ReactNode {
+  const outcome = activity.status === 'started'
+    ? 'running'
+    : activity.exitCode === undefined
+    ? statusLabel(activity.status)
+    : `exit ${String(activity.exitCode)}`;
+  return (
+    <>
+      <span className={cls('activity-kind')}>{activity.name}</span>
+      <div className={cls('activity-text', 'activity-body')}>
+        <span className={cls('command-line')}>
+          {activity.detail !== undefined && (
+            <code className={cls('command')}>{activity.detail}</code>
+          )}
+          <span className={cls('outcome')} data-status={activity.status}>
+            {outcome}
+          </span>
+        </span>
+        {activity.output !== undefined && (
+          <pre className={cls('output')}>{activity.output}</pre>
+        )}
+      </div>
+    </>
   );
 }
 

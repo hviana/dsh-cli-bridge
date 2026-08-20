@@ -200,7 +200,8 @@ function taskFields(defaultCli: CliId) {
     },
     account: {
       type: 'string',
-      description: 'Account to use. Leave empty for the default.',
+      description:
+        'Account to use — the id as listed, either bare ("personal") or with its delegate ("claude/personal"). Leave empty for the default.',
     },
     model: {
       type: 'string',
@@ -392,7 +393,7 @@ function accountsTool(operations: BridgeOperations): ToolDefinition {
       id: {
         type: 'string',
         description:
-          'Account id: lowercase letters, digits, dot, dash, underscore. Omit when adding; a fresh id is made for you.',
+          'Account id: lowercase letters, digits, dot, dash, underscore. The listed "claude/personal" form is accepted too. Omit when adding; a fresh id is made for you.',
       },
       label: {
         type: 'string',

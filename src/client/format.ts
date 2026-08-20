@@ -190,8 +190,113 @@ export function directionCopy(
     : { placeholder: 'steer this task', action: 'steer' };
 }
 
-/** One line describing a decoded delegate action. */
-export function describeActivity(activity: Activity): string {
+/**
+ * One row of the transcript: an activity plus the key React identifies it by.
+ *
+ * A tool row is the FOLDED form of every activity that shared its id, so the
+ * row a person reads is the call — started, then finished, with its output —
+ * rather than one line per event the delegate happened to emit.
+ */
+export interface TranscriptRow {
+  readonly key: string;
+  readonly activity: Activity;
+}
+
+/**
+ * Fold a run's activities into the rows a watcher reads.
+ *
+ * Two things make the raw list unreadable, and both are fixed here rather than
+ * in the view: a tool call arrives as a `started` event and a terminal one, and
+ * the usage counters arrive as an activity in the middle of the conversation.
+ * So identified tool events collapse onto their first row — which keeps the
+ * command it was started with while gaining the status, exit code and output of
+ * its result — and usage leaves the flow, because the header already states it.
+ * @param activities - the run's activities, in arrival order.
+ * @returns the rows, in the order each call or message first appeared.
+ */
+export function foldTranscript(
+  activities: readonly Activity[],
+): TranscriptRow[] {
+  const rows: TranscriptRow[] = [];
+  const toolRows = new Map<string, number>();
+  activities.forEach((activity, position) => {
+    // Counters are machinery, not conversation: the header reports them.
+    if (activity.type === 'usage') return;
+    const id = activity.type === 'tool' ? activity.id : undefined;
+    const existing = id === undefined ? undefined : toolRows.get(id);
+    if (existing !== undefined) {
+      const previous = rows[existing];
+      if (previous !== undefined && previous.activity.type === 'tool') {
+        rows[existing] = {
+          key: previous.key,
+          activity: mergeTool(previous.activity, activity),
+        };
+        return;
+      }
+    }
+    if (id !== undefined) toolRows.set(id, rows.length);
+    rows.push({ key: `${String(position)}-${activity.type}`, activity });
+  });
+  return rows;
+}
+
+/**
+ * Fold a later report of one tool call onto the row already showing it.
+ *
+ * The LATER event wins on status, exit code and output, because that is the
+ * call progressing. The earlier one wins on nothing except the fields its
+ * successor left out — a completion carries no command, and dropping the
+ * command would blank the row a person was already reading.
+ * @param previous - the row's current activity.
+ * @param next - the newly arrived activity for the same call.
+ * @returns the merged activity.
+ */
+function mergeTool(
+  previous: Activity & { readonly type: 'tool' },
+  next: Activity,
+): Activity {
+  if (next.type !== 'tool') return previous;
+  return {
+    type: 'tool',
+    name: next.name === 'tool' ? previous.name : next.name,
+    status: next.status,
+    ...previous.id === undefined ? {} : { id: previous.id },
+    ...(next.detail ?? previous.detail) === undefined
+      ? {}
+      : { detail: next.detail ?? previous.detail },
+    ...(next.exitCode ?? previous.exitCode) === undefined
+      ? {}
+      : { exitCode: next.exitCode ?? previous.exitCode },
+    ...(next.output ?? previous.output) === undefined
+      ? {}
+      : { output: next.output ?? previous.output },
+  };
+}
+
+/**
+ * A path as the watcher recognizes it: relative to the workspace it is in.
+ *
+ * A delegate reports absolute paths, and an absolute path is mostly the same
+ * prefix repeated on every row — noise that pushes the part that differs off
+ * the edge. A path outside the workspace keeps its absolute form, because there
+ * the prefix IS the information.
+ * @param path - the reported path.
+ * @param root - the run's workspace root, when known.
+ * @returns the display path.
+ */
+export function displayPath(path: string, root?: string): string {
+  if (root === undefined || root.length === 0) return path;
+  const base = root.endsWith('/') ? root : `${root}/`;
+  return path.startsWith(base) ? path.slice(base.length) : path;
+}
+
+/**
+ * One line describing a decoded delegate action.
+ * @param activity - the action.
+ * @param root - workspace root, so a file path reads relative to it.
+ * @returns the line.
+ */
+export function describeActivity(activity: Activity, root?: string): string {
   switch (activity.type) {
     case 'message':
       return activity.text;
@@ -205,7 +310,7 @@ export function describeActivity(activity: Activity): string {
       return `${activity.name}${detail}${exit}`;
     }
     case 'file':
-      return `${activity.change} ${activity.path}`;
+      return `${activity.change} ${displayPath(activity.path, root)}`;
     case 'usage':
       return formatUsage(activity.usage);
     case 'notice':

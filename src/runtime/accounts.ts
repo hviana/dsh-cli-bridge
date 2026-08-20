@@ -32,6 +32,27 @@ import type { CredentialPort, FilePort } from './ports.ts';
 /** Id of the built-in account that inherits the machine's own CLI configuration. */
 export const AMBIENT_ACCOUNT_ID = 'ambient';
 
+/**
+ * Accept the composite id every listing shows.
+ *
+ * Accounts are listed as `<cli>/<id>` — that is the string a caller reads and
+ * therefore the string a caller copies back — while the stored id is the bare
+ * one. So a `<cli>/` prefix naming THIS delegate is a spelling of the same
+ * account, not a different one, and refusing it would be the plugin failing a
+ * caller for quoting the plugin's own output.
+ *
+ * A prefix naming ANOTHER delegate is left exactly as it came, so asking Codex
+ * for `claude/personal` still fails loudly instead of quietly running something
+ * else.
+ * @param cli - the delegate the id is being resolved for.
+ * @param id - the id as the caller wrote it.
+ * @returns the bare stored id.
+ */
+export function bareAccountId(cli: CliId, id: string): string {
+  const prefix = `${cli}/`;
+  return id.startsWith(prefix) ? id.slice(prefix.length) : id;
+}
+
 /** One stored account. */
 export interface AccountRecord {
   readonly id: string;
@@ -154,7 +175,12 @@ export class AccountStore {
    * @returns the record, or `undefined` for the ambient account.
    * @throws {BridgeError} `UNKNOWN_ACCOUNT` when a named account does not exist.
    */
-  async resolve(cli: CliId, id?: string): Promise<AccountRecord | undefined> {
+  async resolve(cli: CliId, requested?: string): Promise<
+    AccountRecord | undefined
+  > {
+    const id = requested === undefined
+      ? undefined
+      : bareAccountId(cli, requested);
     const document = await this.read();
     const wanted = id ?? document.defaults[cli] ?? AMBIENT_ACCOUNT_ID;
     if (wanted === AMBIENT_ACCOUNT_ID) return undefined;
@@ -258,7 +284,8 @@ export class AccountStore {
    * @param id - the account id.
    * @throws {BridgeError} when the account is unknown or built in.
    */
-  async remove(cli: CliId, id: string): Promise<void> {
+  async remove(cli: CliId, requested: string): Promise<void> {
+    const id = bareAccountId(cli, requested);
     if (id === AMBIENT_ACCOUNT_ID) {
       throw new BridgeError(
         `${AMBIENT_ACCOUNT_ID} is the built-in account and cannot be removed`,
@@ -294,7 +321,8 @@ export class AccountStore {
    * @param id - the account id, or the ambient id.
    * @throws {BridgeError} `UNKNOWN_ACCOUNT` when the account does not exist.
    */
-  async setDefault(cli: CliId, id: string): Promise<void> {
+  async setDefault(cli: CliId, requested: string): Promise<void> {
+    const id = bareAccountId(cli, requested);
     const document = await this.read();
     if (
       id !== AMBIENT_ACCOUNT_ID &&
