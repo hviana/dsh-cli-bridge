@@ -1,0 +1,110 @@
+DSH CLI BRIDGE — SOURCE-AVAILABLE LICENCE
+
+Copyright (c) 2026 hviana. All rights reserved.
+
+This software and its documentation (the "Software") are the property of hviana
+(the "Licensor"). The source is published so the Software can be read, audited,
+used, and improved freely. Funding is voluntary — through GitHub Sponsors — and
+redistribution is the one thing a sponsor or a commercial licence is asked for.
+
+1. FREE USE
+
+   Without payment and without asking, you may:
+
+   (a) install, run, and use the Software for any purpose, personal or
+       commercial, in your own environments;
+   (b) make the copies you need to do so;
+   (c) read, study, and modify the Software for your own use.
+
+   Internal use is never conditional on payment. It is free, always — even at a
+   company, even with your own modifications.
+
+2. REDISTRIBUTION
+
+   You may not redistribute the Software without either (i) sponsorship of this
+   project through GitHub Sponsors, or (ii) a separate written commercial
+   licence from the Licensor. "Redistribute" means:
+
+   (a) publish, fork, or otherwise distribute the Software or a modified
+       version of it, in source or built form;
+   (b) sell, sublicense, rent, lease, or lend it;
+   (c) offer it to third parties as a hosted, managed, or embedded service; or
+   (d) incorporate it into a product or service that you distribute.
+
+   Using the Software inside your own development — including to build a
+   product, so long as the Software itself is not passed to third parties — is
+   use under clause 1, not redistribution.
+
+3. CONTRIBUTIONS
+
+   Contributions are welcome, and they are made on the understanding that the
+   Licensor may continue to steward the project commercially. By submitting a
+   contribution (a pull request, patch, or other material offered for
+   inclusion), you:
+
+   (a) represent that you are entitled to grant the rights below, and that if
+       the contribution was made in the course of your employment, your
+       employer consents to it; and
+
+   (b) grant the Licensor an irrevocable, perpetual, worldwide, royalty-free,
+       transferable, sublicensable licence to use, reproduce, modify, publish,
+       distribute, and otherwise exploit the contribution — including
+       commercially and under any other licence, open or proprietary — without
+       further permission, notice, or payment.
+
+   Submitting a contribution does not oblige the Licensor to accept or use it,
+   and it does not limit your own rights to your contribution outside this
+   Software.
+
+4. OWNERSHIP
+
+   The Licensor retains all right, title, and interest in and to the Software,
+   including every intellectual property right in it. No rights are granted
+   other than those stated in this licence.
+
+5. THIRD-PARTY COMPONENTS
+
+   The distributed build includes third-party open-source components that remain
+   governed by their own licences. Those licences, and the notices they require,
+   are reproduced in THIRD-PARTY-NOTICES.md. Nothing in this licence limits the
+   rights those licences grant in those components.
+
+   The Software is independent: it is not affiliated with, endorsed by, or
+   sponsored by DeepSeek, Anthropic, or OpenAI. "DeepSeek Harness", "Claude
+   Code", and "Codex" belong to their respective owners and are used here only
+   to identify the software this plugin interoperates with.
+
+6. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+7. LIMITATION OF LIABILITY
+
+   TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR SHALL NOT
+   BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+   CONSEQUENTIAL DAMAGES, NOR FOR ANY LOSS OF PROFITS, REVENUE, DATA, OR USE,
+   ARISING OUT OF OR IN CONNECTION WITH THE SOFTWARE, WHETHER IN CONTRACT,
+   TORT, OR OTHERWISE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+   The Software delegates work to autonomous coding agents that modify files
+   and run commands on the machine it is installed on. Choosing which
+   workspaces, credentials, and permissions to give it is your responsibility
+   alone.
+
+8. ENFORCEMENT
+
+   Redistribution without the sponsorship or licence that clause 2 requires is
+   an infringement of copyright. The free-use grant in clause 1 is unaffected by,
+   and survives, any dispute about redistribution.
+
+9. SPONSORSHIP
+
+   This project is funded by its users. Sponsor it at:
+
+       https://github.com/sponsors/hviana
+
+   A sponsorship of any amount — one-time or recurring — satisfies the
+   condition in clause 2. For a commercial licence, contact the Licensor through
+   https://github.com/hviana/dsh-cli-bridge.

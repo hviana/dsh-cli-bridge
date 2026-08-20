@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "warn"
+  },
+  "env": {
+    "es2024": true,
+    "node": true,
+    "browser": true
+  },
+  "rules": {
+    "no-console": "error",
+    "eqeqeq": "error",
+    "no-var": "error",
+    "prefer-const": "error",
+    "unicorn/require-module-specifiers": "off"
+  },
+  "overrides": [
+    {
+      "files": [
+        "tests/**"
+      ],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
+}

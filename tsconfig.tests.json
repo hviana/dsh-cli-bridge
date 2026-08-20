@@ -1,0 +1,21 @@
+{
+  // Test sources compile against `src` directly — the same view vitest has, so
+  // a green typecheck and a green run cannot disagree. They emit nothing, which
+  // is also why import rewriting is off: there is no output whose relative
+  // paths would need to keep matching the sources'.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "tsBuildInfoFile": "./.tsbuildinfo/tests.tsbuildinfo",
+    "composite": false,
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "rewriteRelativeImportExtensions": false,
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["node"]
+  },
+  "include": ["tests", "vitest.config.ts", "tsdown.config.ts"]
+}

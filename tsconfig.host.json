@@ -1,0 +1,19 @@
+{
+  // The Node half: the cordis plugin, its domain core, and its runtime.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "./.tsbuildinfo/host.tsbuildinfo",
+    "lib": ["ES2024"],
+    "types": ["node"]
+  },
+  "include": [
+    "src/index.ts",
+    "src/config.ts",
+    "src/domain",
+    "src/runtime",
+    "src/host"
+  ],
+  "references": [{ "path": "./tsconfig.shared.json" }]
+}

@@ -1,0 +1,15 @@
+{
+  // The browser half: the client cordis plugin and its React views. No `node`
+  // types — the browser bundle must not be able to reach a Node API.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "./.tsbuildinfo/client.tsbuildinfo",
+    "jsx": "react-jsx",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": ["src/client"],
+  "references": [{ "path": "./tsconfig.shared.json" }]
+}

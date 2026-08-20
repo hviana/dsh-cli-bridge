@@ -1,0 +1,10 @@
+node_modules/
+lib/
+coverage/
+*.tsbuildinfo
+*.tgz
+.DS_Store
+
+# local editor and agent state
+.claude/
+.tsbuildinfo/

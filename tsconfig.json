@@ -1,0 +1,12 @@
+{
+  // Solution file: `tsc -b` from here builds the wire contract and both halves,
+  // then typechecks the tests against the sources. Editors read it to resolve
+  // every file in the repository to a project.
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.shared.json" },
+    { "path": "./tsconfig.host.json" },
+    { "path": "./tsconfig.client.json" },
+    { "path": "./tsconfig.tests.json" }
+  ]
+}

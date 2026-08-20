@@ -1,0 +1,120 @@
+{
+  "name": "dsh-cli-bridge",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness plugin that delegates tasks to the Claude Code and Codex CLIs \u2014 multi-account, model and effort aware, with live host-to-web streaming and a summary-only model surface.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "claude-code",
+    "codex",
+    "cli",
+    "agent",
+    "delegation"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "hviana",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hviana/dsh-cli-bridge.git"
+  },
+  "homepage": "https://github.com/hviana/dsh-cli-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/hviana/dsh-cli-bridge/issues"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/index.js.map",
+    "lib/client.cjs",
+    "lib/client.cjs.map",
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-tool"
+      ]
+    }
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.host.json tsconfig.client.json && tsdown",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build && npm run verify:package",
+    "clean": "node scripts/clean.mjs",
+    "coverage": "vitest run --coverage",
+    "lint": "oxlint src tests",
+    "prepare": "node scripts/prepare.mjs",
+    "prepublishOnly": "npm run check",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b tsconfig.json",
+    "notices": "node scripts/third-party-notices.mjs",
+    "verify:package": "publint && node scripts/verify-artifact.mjs && node scripts/third-party-notices.mjs --check"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent": "^0.0.1-rc.5",
+    "@deepseek-ai/dsh-attachment": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-brand": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-client-locale": "0.0.1-rc.1",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.0.1-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.0.1-rc.1",
+    "@deepseek-ai/dsh-client-ui-slots": "0.0.1-rc.1",
+    "@deepseek-ai/dsh-client-ui-tool": "0.0.1-rc.1",
+    "@deepseek-ai/dsh-code-runtime": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-commands": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-credentials": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-host-webserver": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-invariants": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-jobs": "^0.0.1-rc.3",
+    "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-sandbox": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-sandbox-policy": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-scope": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-session": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-subprocess": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-system-prompt": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-timeout": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-typert-protocol": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-user-approval": "^0.0.1-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@types/node": "^22.20.0",
+    "@types/react": "^18.3.31",
+    "@vitest/coverage-v8": "^4.1.8",
+    "oxlint": "^1.76.0",
+    "publint": "^0.3.21",
+    "react": "^18.3.1",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "packageManager": "pnpm@11.21.0"
+}

@@ -1,0 +1,13 @@
+{
+  // `deno fmt` formats YAML by default, and pnpm's lockfile uses
+  // peer-dependency resolver keys — `pkg@1.0.0(@dep@2.0.0)(…)` — that Deno's
+  // YAML parser cannot read. It is a machine-managed artifact, never source,
+  // so it is excluded instead of reformatted.
+  "fmt": {
+    "exclude": ["pnpm-lock.yaml"],
+    // The source is written single-quoted with semicolons; match it so a
+    // format pass does not churn every string in the tree.
+    "singleQuote": true,
+    "semiColons": true
+  }
+}

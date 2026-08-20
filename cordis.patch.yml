@@ -1,0 +1,58 @@
+# dsh-cli-bridge — the configuration layer this bundle contributes.
+#
+# `dsh plugin --profile <name> add dsh-cli-bridge` appends this bundle to the
+# profile, and this patch inserts the plugin row below. Every field the plugin
+# accepts has a working default, so the row needs no config at all; the
+# commented block records what is available and where the defaults come from.
+#
+# To change something, copy the row into your profile's own
+# `cordis.patch.yml` and override it there by id — a patch replaces a row's
+# whole `config`, so restate every key you keep.
+
+- insert:
+    - id: cli-bridge
+      name: dsh-cli-bridge
+      # config:
+      #   # Where account homes, the managed CLIs, and the account registry live.
+      #   # Empty derives <harness home>/cli-bridge.
+      #   stateDir: ''
+      #   # Delegate used when a call does not name one.
+      #   defaultCli: claude
+      #   # Expose account and toolchain management as model-facing tools.
+      #   adminTools: true
+      #   direction:
+      #     # Marker the delegate ends its final message with to ask for a decision.
+      #     marker: 'NEEDS_DIRECTION:'
+      #     # State that contract in the delegated prompt. Off means runs never ask.
+      #     preamble: true
+      #   limits:
+      #     summaryMaxBytes: 8192       # budget for the summary the model receives
+      #     errorMaxBytes: 2048         # budget for a failure message
+      #     stderrTailBytes: 4096       # stderr retained to explain a failure
+      #     runTimeoutMs: 3600000       # 0 disables the deadline
+      #     maxConcurrentRuns: 4
+      #     terminateGraceMs: 5000      # SIGTERM → SIGKILL grace
+      #     retainedRuns: 50            # settled runs kept for listing and resuming
+      #   channel:
+      #     enabled: true               # false runs the plugin with no live stream
+      #     basePath: /dsh-cli-bridge
+      #     bufferBytesPerStream: 262144   # replay buffer a late subscriber receives
+      #     trustedHosts: []            # non-loopback authorities allowed to subscribe
+      #   toolchain:
+      #     mode: managed               # managed | path | disabled
+      #     autoInstall: true           # install a missing CLI on first use
+      #     updateIntervalMs: 86400000  # 0 disables background updates
+      #     npmCommand: npm
+      #     registry: ''                # empty uses the machine's configured registry
+      #     installTimeoutMs: 600000
+      #   delegates:
+      #     claude:
+      #       defaultModel: ''          # empty lets the CLI choose
+      #       defaultEffort: ''         # low | medium | high | xhigh | max
+      #       executable: ''            # absolute path overriding managed and PATH
+      #       extraArgs: []             # appended verbatim to every run
+      #     codex:
+      #       defaultModel: ''
+      #       defaultEffort: ''
+      #       executable: ''
+      #       extraArgs: []

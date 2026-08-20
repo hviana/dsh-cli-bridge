@@ -1,0 +1,14 @@
+{
+  // The wire contract: the only sources both the Node host half and the browser
+  // half compile against. Platform-neutral by construction — no `node` types,
+  // no DOM lib — so a drift toward either runtime fails the build here first.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "./.tsbuildinfo/shared.tsbuildinfo",
+    "lib": ["ES2024"],
+    "types": []
+  },
+  "include": ["src/shared"]
+}

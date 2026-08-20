@@ -1,0 +1,13 @@
+# pnpm 10+ reads installer settings from this file rather than from .npmrc.
+#
+# autoInstallPeers is off because the @deepseek-ai/dsh-* packages declare their
+# siblings as peers and one of them (@deepseek-ai/dsh-type-meta) is unpublished.
+# Those peers belong to the DeepSeek Harness installation this plugin mounts
+# into; the ones needed to typecheck are pinned as explicit devDependencies.
+autoInstallPeers: false
+strictPeerDependencies: false
+
+# Native toolchain binaries the bundler needs at build time.
+allowBuilds:
+  esbuild: true
+  rolldown: true
