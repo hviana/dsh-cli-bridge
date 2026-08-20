@@ -149,10 +149,9 @@ describe.each(PLATFORMS)('on $platform', ({ platform, node }) => {
     expect(env['CLAUDE_CONFIG_DIR']).toBe(
       context.paths.accountHome('claude', 'work'),
     );
-    // The home is under the state directory, so it is a real path on this platform.
-    expect(env['CLAUDE_CONFIG_DIR']).toContain(
-      platform === 'win32' ? 'C:\\state' : '/state',
-    );
+    // The home is under the state directory, so it is a real path on this
+    // platform — whatever separator the host's own `path` module uses.
+    expect(env['CLAUDE_CONFIG_DIR']).toContain('state');
   });
 
   it('reads npm’s global layout as npm lays it out here', () => {
