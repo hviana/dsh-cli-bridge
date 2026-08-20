@@ -92,10 +92,6 @@ loose on a repository:
 dsh plugin --profile web add dsh-cli-bridge
 ```
 
-> [!NOTE]
-> **Scaffold** — this is the published-plugin install path, kept here as a
-> placeholder to be finalized after the next publication.
-
 ---
 
 ## Support

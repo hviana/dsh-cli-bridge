@@ -21,7 +21,21 @@
  *
  * @module dsh-cli-bridge/runtime/launch
  */
-import { dirname, extname, join } from 'node:path';
+import { dirname, extname, join, posix, win32 } from 'node:path';
+
+/**
+ * The `node:path` implementation whose separators match one platform.
+ *
+ * `globalPackageDir` and the toolchain's managed-entry resolution take an
+ * explicit platform, so they must shape paths for THAT platform rather than for
+ * the host the test happens to run on. A simulated `win32` on a Linux host must
+ * produce real backslashes, and this is the one place that decides.
+ * @param platform - the platform a path is being shaped for.
+ * @returns `path.win32` for Windows, `path.posix` otherwise.
+ */
+export function pathFor(platform: NodeJS.Platform): typeof posix {
+  return platform === 'win32' ? win32 : posix;
+}
 
 /** Directory npm installs a package into inside a global prefix. */
 export function globalPackageDir(
@@ -29,11 +43,14 @@ export function globalPackageDir(
   pkg: string,
   platform: NodeJS.Platform,
 ): string {
-  // npm's global layout differs by platform, and only here.
+  // npm's global layout differs by platform, and only here. The platform's own
+  // path module is used rather than the host's, so the answer is shaped for the
+  // platform it names on any machine.
+  const path = pathFor(platform);
   const segments = pkg.split('/');
   return platform === 'win32'
-    ? join(prefix, 'node_modules', ...segments)
-    : join(prefix, 'lib', 'node_modules', ...segments);
+    ? path.join(prefix, 'node_modules', ...segments)
+    : path.join(prefix, 'lib', 'node_modules', ...segments);
 }
 
 /**

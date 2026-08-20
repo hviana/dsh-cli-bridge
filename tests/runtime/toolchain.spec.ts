@@ -5,8 +5,10 @@ import type {
   Config as ResolvedConfig,
   ToolchainConfig,
 } from '../../src/config.ts';
+import { globalPackageDir, pathFor } from '../../src/runtime/launch.ts';
 import { BridgePaths } from '../../src/runtime/paths.ts';
 import { Toolchain } from '../../src/runtime/toolchain.ts';
+import type { CliId } from '../../src/shared/protocol.ts';
 import {
   fakeClock,
   FakeProcessPort,
@@ -17,6 +19,18 @@ import {
 const paths = new BridgePaths('/state');
 const NODE = '/usr/bin/node';
 const defaults: ResolvedConfig = new Config({});
+
+/**
+ * Where production resolves one CLI's managed shim on a platform: the host
+ * state prefix, joined with the platform's own separators.
+ */
+function managedShim(
+  cli: CliId,
+  platform: NodeJS.Platform,
+  ...segments: readonly string[]
+): string {
+  return pathFor(platform).join(paths.toolchainPrefix(cli), ...segments);
+}
 
 function build(options: {
   toolchain?: Partial<ToolchainConfig>;
@@ -67,7 +81,7 @@ describe('locating a delegate', () => {
   });
 
   it('prefers its own managed install over PATH', async () => {
-    const managed = join('/state', 'toolchain', 'claude', 'bin', 'claude');
+    const managed = managedShim('claude', 'linux', 'bin', 'claude');
     const { toolchain } = build({ onPath: ['claude'], installed: [managed] });
     expect((await toolchain.statuses())[0]).toMatchObject({
       source: 'managed',
@@ -76,7 +90,7 @@ describe('locating a delegate', () => {
   });
 
   it('finds the Windows shim where npm puts it', async () => {
-    const managed = join('/state', 'toolchain', 'codex', 'codex.cmd');
+    const managed = managedShim('codex', 'win32', 'codex.cmd');
     const { toolchain } = build({ platform: 'win32', installed: [managed] });
     expect((await toolchain.statuses())[1]).toMatchObject({
       source: 'managed',
@@ -134,7 +148,7 @@ describe('locating a delegate', () => {
   });
 
   it('ignores the managed prefix when managed mode is off', async () => {
-    const managed = join('/state', 'toolchain', 'claude', 'bin', 'claude');
+    const managed = managedShim('claude', 'linux', 'bin', 'claude');
     const { toolchain } = build({
       toolchain: { mode: 'path' },
       installed: [managed],
@@ -154,40 +168,17 @@ describe('locating a delegate', () => {
 });
 
 describe('spawning what it found', () => {
-  const posixEntry = join(
-    '/state',
-    'toolchain',
-    'claude',
-    'lib',
-    'node_modules',
-    '@anthropic-ai',
-    'claude-code',
-    'cli.js',
-  );
-
-  /** Stage an installed package with a readable manifest. */
+  /** Stage an installed package with a readable manifest, exactly as npm lays it out. */
   function staged(platform: NodeJS.Platform, manifest: string, entry: string) {
     const files = new MemoryFiles();
-    const packageDir = platform === 'win32'
-      ? join(
-        '/state',
-        'toolchain',
-        'claude',
-        'node_modules',
-        '@anthropic-ai',
-        'claude-code',
-      )
-      : join(
-        '/state',
-        'toolchain',
-        'claude',
-        'lib',
-        'node_modules',
-        '@anthropic-ai',
-        'claude-code',
-      );
-    files.files.set(join(packageDir, 'package.json'), manifest);
-    files.files.set(join(packageDir, entry), '#!/usr/bin/env node');
+    const path = pathFor(platform);
+    const packageDir = globalPackageDir(
+      paths.toolchainPrefix('claude'),
+      '@anthropic-ai/claude-code',
+      platform,
+    );
+    files.files.set(path.join(packageDir, 'package.json'), manifest);
+    files.files.set(path.join(packageDir, entry), '#!/usr/bin/env node');
     const port = new FakeProcessPort(() => ({ stdout: ['3.1.4'] }));
     const toolchain = new Toolchain(
       paths,
@@ -199,32 +190,33 @@ describe('spawning what it found', () => {
       defaults.toolchain,
       defaults.delegates,
     );
-    return { toolchain, port, packageDir };
+    return { toolchain, port, packageDir, path };
   }
 
   it('runs a JavaScript entry point with this Node, not the platform shim', async () => {
-    const { toolchain, port } = staged(
+    const { toolchain, port, packageDir, path } = staged(
       'linux',
       '{"bin":{"claude":"cli.js"}}',
       'cli.js',
     );
+    const entry = path.join(packageDir, 'cli.js');
     expect((await toolchain.statuses())[0]).toMatchObject({
       source: 'managed',
-      path: posixEntry,
+      path: entry,
       version: '3.1.4',
     });
-    expect(port.spawns[0]?.spec.argv).toEqual([NODE, posixEntry, '--version']);
+    expect(port.spawns[0]?.spec.argv).toEqual([NODE, entry, '--version']);
   });
 
   it('spawns a native entry point as itself — Claude Code ships one', async () => {
     // The real package declares `bin/claude.exe`, an ELF or PE binary depending
     // on the platform. Putting Node in front of it would fail immediately.
-    const { toolchain, port, packageDir } = staged(
+    const { toolchain, port, packageDir, path } = staged(
       'linux',
       '{"bin":{"claude":"bin/claude.exe"}}',
       'bin/claude.exe',
     );
-    const entry = join(packageDir, 'bin', 'claude.exe');
+    const entry = path.join(packageDir, 'bin', 'claude.exe');
     expect((await toolchain.statuses())[0]).toMatchObject({
       source: 'managed',
       path: entry,
@@ -233,12 +225,12 @@ describe('spawning what it found', () => {
   });
 
   it('does the same on Windows, where a .cmd shim cannot be spawned at all', async () => {
-    const { toolchain, port, packageDir } = staged(
+    const { toolchain, port, packageDir, path } = staged(
       'win32',
       '{"bin":{"claude":"cli.js"}}',
       'cli.js',
     );
-    const entry = join(packageDir, 'cli.js');
+    const entry = path.join(packageDir, 'cli.js');
     expect((await toolchain.statuses())[0]).toMatchObject({
       source: 'managed',
       path: entry,
@@ -247,7 +239,7 @@ describe('spawning what it found', () => {
   });
 
   it('falls back to the prefix shim when the package has no readable manifest', async () => {
-    const managed = join('/state', 'toolchain', 'claude', 'bin', 'claude');
+    const managed = managedShim('claude', 'linux', 'bin', 'claude');
     const { toolchain, port } = build({ installed: [managed] });
     expect((await toolchain.statuses())[0]).toMatchObject({
       source: 'managed',
@@ -257,7 +249,7 @@ describe('spawning what it found', () => {
   });
 
   it('wraps a Windows shim in cmd.exe when that is all there is', async () => {
-    const shim = join('/state', 'toolchain', 'claude', 'claude.cmd');
+    const shim = managedShim('claude', 'win32', 'claude.cmd');
     const { toolchain, port } = build({ platform: 'win32', installed: [shim] });
     expect((await toolchain.statuses())[0]).toMatchObject({
       source: 'managed',
@@ -377,7 +369,7 @@ describe('finding npm', () => {
 });
 
 describe('installing a delegate', () => {
-  const managed = join('/state', 'toolchain', 'claude', 'bin', 'claude');
+  const managed = managedShim('claude', 'linux', 'bin', 'claude');
 
   it('installs into the private prefix and then finds the binary', async () => {
     const files = new MemoryFiles();
@@ -481,7 +473,7 @@ describe('ensuring a delegate before a run', () => {
 
   it('installs a missing CLI on first use', async () => {
     const files = new MemoryFiles();
-    const managed = join('/state', 'toolchain', 'codex', 'bin', 'codex');
+    const managed = managedShim('codex', 'linux', 'bin', 'codex');
     const port = new FakeProcessPort((spec) => {
       if (spec.argv.includes('install')) {
         files.directories.add(managed);
@@ -508,7 +500,7 @@ describe('ensuring a delegate before a run', () => {
 
   it('shares one install between concurrent callers', async () => {
     const files = new MemoryFiles();
-    const managed = join('/state', 'toolchain', 'codex', 'bin', 'codex');
+    const managed = managedShim('codex', 'linux', 'bin', 'codex');
     const port = new FakeProcessPort((spec) => {
       if (spec.argv.includes('install')) {
         files.directories.add(managed);
@@ -548,7 +540,7 @@ describe('ensuring a delegate before a run', () => {
 
   it('streams installer output to the caller', async () => {
     const files = new MemoryFiles();
-    const managed = join('/state', 'toolchain', 'claude', 'bin', 'claude');
+    const managed = managedShim('claude', 'linux', 'bin', 'claude');
     const port = new FakeProcessPort((spec) => {
       if (spec.argv.includes('install')) {
         files.directories.add(managed);
@@ -579,7 +571,7 @@ describe('ensuring a delegate before a run', () => {
 describe('keeping delegates current', () => {
   async function installed() {
     const files = new MemoryFiles();
-    const managed = join('/state', 'toolchain', 'claude', 'bin', 'claude');
+    const managed = managedShim('claude', 'linux', 'bin', 'claude');
     const clock = fakeClock();
     const port = new FakeProcessPort((spec) => {
       if (spec.argv.includes('install')) {

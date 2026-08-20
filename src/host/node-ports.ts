@@ -141,7 +141,11 @@ function isMissing(error: unknown): boolean {
  * @param from - the staging file.
  * @param to - the final path.
  */
-async function renameOver(from: string, to: string, attempt = 0): Promise<void> {
+async function renameOver(
+  from: string,
+  to: string,
+  attempt = 0,
+): Promise<void> {
   try {
     await rename(from, to);
   } catch (error) {
@@ -154,5 +158,6 @@ async function renameOver(from: string, to: string, attempt = 0): Promise<void> 
 /** Whether a rename failure is a transient lock rather than a real error. */
 function isTransientLock(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY' || code === 'EEXIST';
+  return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY' ||
+    code === 'EEXIST';
 }

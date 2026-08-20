@@ -18,26 +18,19 @@ describe('globalPackageDir', () => {
         '@anthropic-ai/claude-code',
         'linux',
       ),
-    )
-      .toBe(
-        join(
-          '/state/toolchain/claude',
-          'lib',
-          'node_modules',
-          '@anthropic-ai',
-          'claude-code',
-        ),
-      );
+    ).toBe(
+      '/state/toolchain/claude/lib/node_modules/@anthropic-ai/claude-code',
+    );
   });
 
-  it('uses npm’s Windows global layout', () => {
-    expect(globalPackageDir('/prefix', '@openai/codex', 'win32'))
-      .toBe(join('/prefix', 'node_modules', '@openai', 'codex'));
+  it('uses npm’s Windows global layout, with real backslashes', () => {
+    expect(globalPackageDir('C:\\prefix', '@openai/codex', 'win32'))
+      .toBe('C:\\prefix\\node_modules\\@openai\\codex');
   });
 
   it('handles an unscoped package', () => {
     expect(globalPackageDir('/prefix', 'codex', 'darwin')).toBe(
-      join('/prefix', 'lib', 'node_modules', 'codex'),
+      '/prefix/lib/node_modules/codex',
     );
   });
 });

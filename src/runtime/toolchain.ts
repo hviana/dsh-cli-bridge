@@ -12,7 +12,6 @@
  *
  * @module dsh-cli-bridge/runtime/toolchain
  */
-import { join } from 'node:path';
 import type { CliId, ToolchainStatus } from '../shared/protocol.ts';
 import { CLI_IDS } from '../shared/protocol.ts';
 import { adapterFor } from '../domain/adapters/index.ts';
@@ -25,6 +24,7 @@ import {
   globalPackageDir,
   isJavaScriptEntry,
   npmEntryCandidates,
+  pathFor,
 } from './launch.ts';
 import type { BridgePaths } from './paths.ts';
 import type { FilePort, ProcessPort } from './ports.ts';
@@ -322,18 +322,19 @@ export class Toolchain {
    */
   private async managedEntry(cli: CliId): Promise<Executable | undefined> {
     const adapter = adapterFor(cli);
+    const path = pathFor(this.platform);
     const prefix = this.paths.toolchainPrefix(cli);
     const packageDir = globalPackageDir(
       prefix,
       adapter.npmPackage,
       this.platform,
     );
-    const manifest = await this.readJson(join(packageDir, 'package.json'));
+    const manifest = await this.readJson(path.join(packageDir, 'package.json'));
     const entry = manifest === undefined
       ? undefined
       : binEntry(manifest, adapter.command);
     if (entry !== undefined) {
-      const script = join(packageDir, entry);
+      const script = path.join(packageDir, entry);
       if (await this.files.exists(script)) {
         return {
           cli,
@@ -346,8 +347,8 @@ export class Toolchain {
     // No readable manifest (a native build, an unusual layout): fall back to
     // whatever the installer put in the prefix's bin position.
     const shim = this.platform === 'win32'
-      ? join(prefix, `${adapter.command}.cmd`)
-      : join(prefix, 'bin', adapter.command);
+      ? path.join(prefix, `${adapter.command}.cmd`)
+      : path.join(prefix, 'bin', adapter.command);
     return await this.files.exists(shim)
       ? { cli, source: 'managed', path: shim, argv: this.launch(shim) }
       : undefined;

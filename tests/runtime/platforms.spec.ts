@@ -7,13 +7,16 @@
  * platform is an injected port, so all three are exercised on whichever machine
  * runs the suite — which is the only way a Linux CI run can defend Windows.
  */
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Config } from '../../src/config.ts';
 import { adapterFor } from '../../src/domain/adapters/index.ts';
 import { AccountStore } from '../../src/runtime/accounts.ts';
 import { StreamHub } from '../../src/runtime/channel.ts';
-import { composeArgv, globalPackageDir } from '../../src/runtime/launch.ts';
+import {
+  composeArgv,
+  globalPackageDir,
+  pathFor,
+} from '../../src/runtime/launch.ts';
 import { BridgePaths } from '../../src/runtime/paths.ts';
 import { RunRegistry } from '../../src/runtime/registry.ts';
 import { Toolchain } from '../../src/runtime/toolchain.ts';
@@ -88,14 +91,15 @@ async function install(
   platform: NodeJS.Platform,
 ) {
   const adapter = adapterFor(cli);
+  const path = pathFor(platform);
   const prefix = context.paths.toolchainPrefix(cli);
   const packageDir = globalPackageDir(prefix, adapter.npmPackage, platform);
   const entry = ENTRIES[cli];
   await context.files.writeText(
-    join(packageDir, 'package.json'),
+    path.join(packageDir, 'package.json'),
     JSON.stringify({ bin: { [adapter.command]: entry.bin } }),
   );
-  context.files.directories.add(join(packageDir, entry.bin));
+  context.files.directories.add(path.join(packageDir, entry.bin));
   return { packageDir, entry };
 }
 
@@ -105,7 +109,7 @@ describe.each(PLATFORMS)('on $platform', ({ platform, node }) => {
     async (cli) => {
       const context = build(platform, node);
       const { packageDir, entry } = await install(context, cli, platform);
-      const script = join(packageDir, entry.bin);
+      const script = pathFor(platform).join(packageDir, entry.bin);
 
       const status = (await context.toolchain.statuses()).find((entry_) =>
         entry_.cli === cli
@@ -161,9 +165,12 @@ describe.each(PLATFORMS)('on $platform', ({ platform, node }) => {
       platform,
     );
     expect(dir).toBe(
-      platform === 'win32'
-        ? join('C:\\prefix', 'node_modules', '@openai', 'codex')
-        : join('/prefix', 'lib', 'node_modules', '@openai', 'codex'),
+      pathFor(platform).join(
+        platform === 'win32' ? 'C:\\prefix' : '/prefix',
+        ...(platform === 'win32' ? ['node_modules'] : ['lib', 'node_modules']),
+        '@openai',
+        'codex',
+      ),
     );
   });
 });
