@@ -14,7 +14,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { isBuiltin } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -47,7 +47,7 @@ expect(
   'the package must declare no runtime dependencies; the artifact is self-contained',
 );
 
-const plugin = await import(join(root, 'lib', 'index.js'));
+const plugin = await import(pathToFileURL(join(root, 'lib', 'index.js')).href);
 expect(
   plugin.name === 'cli-bridge',
   'the artifact must export the plugin name',
