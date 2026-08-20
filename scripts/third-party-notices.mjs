@@ -159,7 +159,10 @@ const document = [
 ].join('\n');
 
 if (process.argv.includes('--check')) {
-  const current = await readFile(NOTICES, 'utf8').catch(() => undefined);
+  // git checks the file out with CRLF on Windows; the generated document is
+  // always LF. Normalize so the comparison is about content, not line endings.
+  const current = (await readFile(NOTICES, 'utf8').catch(() => undefined))
+    ?.replaceAll('\r\n', '\n');
   if (current !== document) {
     const currentLines = (current ?? '').split('\n');
     const documentLines = document.split('\n');
