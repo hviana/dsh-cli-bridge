@@ -108,6 +108,19 @@ describe('adding accounts', () => {
       .rejects.toMatchObject({ code: 'DUPLICATE_ACCOUNT' });
   });
 
+  it('mints a fresh id when none is given, per sign-in style', async () => {
+    const { store } = build();
+    await store.add({ cli: 'claude', auth: 'session' });
+    await store.add({ cli: 'claude', auth: 'session' });
+    await store.add({ cli: 'claude', auth: 'api-key' });
+    expect((await store.list('claude')).map((account) => account.id)).toEqual([
+      AMBIENT_ACCOUNT_ID,
+      'login-1',
+      'login-2',
+      'key-1',
+    ]);
+  });
+
   it('refuses an id that is not a portable directory name', async () => {
     const { store } = build();
     await expect(store.add({ cli: 'claude', id: 'Work Seat', auth: 'session' }))

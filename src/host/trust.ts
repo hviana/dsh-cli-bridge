@@ -1,12 +1,13 @@
 /**
  * The channel's reachability fence.
  *
- * This mirrors the harness's own `/api` policy rather than inventing one: every
- * request must present a `Host` that is a loopback authority or an explicitly
- * trusted one, an attached `Origin` must match that authority, and an explicit
- * cross-site marker is refused. It is a DNS-rebinding and cross-site defense,
- * NOT authentication — the harness has none yet, and a plugin must not pretend
- * otherwise.
+ * The channel is same-origin with the web UI. A browser request is accepted
+ * exactly when the Origin it states matches the Host the user actually loaded,
+ * which is how the panel works from loopback AND from a LAN address on a phone.
+ * A request with no browser Origin — a script or a health check — must come
+ * from loopback or a host the operator has explicitly trusted. This is a
+ * cross-site defense, NOT authentication: the harness has none yet, and a
+ * plugin must not pretend otherwise.
  *
  * @module dsh-cli-bridge/host/trust
  */
@@ -106,20 +107,33 @@ export function isTrustedRequest(
 ): boolean {
   const host = parseAuthority(request.headers.host);
   if (host === undefined) return false;
-  if (
-    !isLoopbackHostname(host.hostname) && !matchesTrusted(host, trustedHosts)
-  ) return false;
 
-  // Fetch metadata, when the browser sent it: a cross-site request is refused
-  // outright, and a stated Origin must be the authority it claims to be.
-  if (readHeader(request, 'sec-fetch-site') === 'cross-site') return false;
+  // An explicit cross-site request is refused outright: the browser's own
+  // marker for "this page did not originate here".
+  const site = readHeader(request, 'sec-fetch-site');
+  if (site === 'cross-site') return false;
+
   const origin = readHeader(request, 'origin');
-  if (origin === undefined || origin === 'null') return true;
-  try {
-    return new URL(origin).host === host.host;
-  } catch {
-    return false;
+  // A browser sends an Origin on same-origin POSTs, on the event stream, and on
+  // any cross-origin request. When it does, the page's own authority is the
+  // fence: the Origin must be the Host the user loaded. This is the cross-site
+  // defense — a page on another site cannot forge a matching Origin — and it is
+  // what lets the web UI be reached from a LAN address on a phone as well as
+  // from loopback.
+  if (origin !== undefined && origin !== 'null') {
+    try {
+      return new URL(origin).host === host.host;
+    } catch {
+      return false;
+    }
   }
+
+  // No exact Origin: a browser's plain same-origin GET (the state read) carries
+  // none but marks itself same-origin, so accept that. Anything else — a script
+  // or a health check — must come from loopback or an explicitly trusted host.
+  if (site === 'same-origin') return true;
+  return isLoopbackHostname(host.hostname) ||
+    matchesTrusted(host, trustedHosts);
 }
 
 /** Whether a request authority matches one of the configured entries. */

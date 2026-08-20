@@ -63,7 +63,7 @@ export function createBridgePanel(store: BridgeStore): () => ReactNode {
 
     return (
       <div className={cls('panel')}>
-        <div className={cls('line')}>
+        <div className={cls('panel-head')}>
           <strong>Claude Code &amp; Codex</strong>
           <button
             type='button'
@@ -74,70 +74,71 @@ export function createBridgePanel(store: BridgeStore): () => ReactNode {
           </button>
         </div>
 
-        {state.error !== undefined && (
-          <div className={cls('error')}>{state.error}</div>
-        )}
-
-        <section className={cls('section')}>
-          <h4>Status</h4>
-          {state.toolchain.map((entry) => (
-            <ToolchainLine key={entry.cli} entry={entry} store={store} />
-          ))}
-        </section>
-
-        <section className={cls('section')}>
-          <h4>Accounts</h4>
-          {state.accounts.map((account) => (
-            <AccountLine
-              key={`${account.cli}/${account.id}`}
-              account={account}
-              store={store}
-            />
-          ))}
-          <NewAccount store={store} />
-        </section>
-
-        <section className={cls('section')}>
-          <h4>On its own</h4>
-          <span className={cls('meta')}>
-            What DeepSeek may decide on its own while Claude Code or Codex
-            works. Off means you answer.
-          </span>
-          {AUTONOMY_SWITCHES.map((name) => (
-            <AutonomyLine
-              key={name}
-              name={name}
-              on={state.autonomy[name]}
-              store={store}
-            />
-          ))}
-        </section>
-
-        <section className={cls('section')}>
-          <h4>Tasks</h4>
-          {state.delegations.length === 0 && (
-            <span className={cls('meta')}>nothing yet</span>
+        <div className={cls('panel-body')}>
+          {state.error !== undefined && (
+            <div className={cls('error')}>{state.error}</div>
           )}
-          {state.delegations.toReversed().map((delegation) => (
-            <DelegationView
-              key={delegation.id}
-              delegation={delegation}
-              rounds={roundsOf(state, delegation.rounds)}
-              store={store}
-              visibleActivities={12}
-            />
-          ))}
-        </section>
 
-        <section className={cls('section')}>
-          <h4>Sign-ins</h4>
-          {loose.length === 0 && (
-            <span className={cls('meta')}>nothing yet</span>
+          <section className={cls('section')}>
+            <h4>Status</h4>
+            {state.toolchain.map((entry) => (
+              <ToolchainLine key={entry.cli} entry={entry} store={store} />
+            ))}
+          </section>
+
+          <section className={cls('section')}>
+            <h4>Accounts</h4>
+            {state.accounts.map((account) => (
+              <AccountLine
+                key={`${account.cli}/${account.id}`}
+                account={account}
+                store={store}
+              />
+            ))}
+            <NewAccount store={store} />
+          </section>
+
+          <section className={cls('section')}>
+            <h4>Tasks</h4>
+            {state.delegations.length === 0 && (
+              <span className={cls('meta')}>nothing yet</span>
+            )}
+            {state.delegations.toReversed().map((delegation) => (
+              <DelegationView
+                key={delegation.id}
+                delegation={delegation}
+                rounds={roundsOf(state, delegation.rounds)}
+                store={store}
+                visibleActivities={12}
+              />
+            ))}
+          </section>
+
+          {loose.length > 0 && (
+            <section className={cls('section')}>
+              <h4>In progress</h4>
+              {loose.toReversed().map((view) => (
+                <RunEntry key={view.id} view={view} store={store} />
+              ))}
+            </section>
           )}
-          {loose.toReversed().map((view) => (
-            <RunEntry key={view.id} view={view} store={store} />
-          ))}
-        </section>
+
+          <section className={cls('section')}>
+            <h4>On its own</h4>
+            <span className={cls('meta')}>
+              What DeepSeek may decide on its own while Claude Code or Codex
+              works. Off means you answer.
+            </span>
+            {AUTONOMY_SWITCHES.map((name) => (
+              <AutonomyLine
+                key={name}
+                name={name}
+                on={state.autonomy[name]}
+                store={store}
+              />
+            ))}
+          </section>
+        </div>
       </div>
     );
   };
@@ -169,9 +170,7 @@ function AutonomyLine({
 }): ReactNode {
   return (
     <label className={cls('line')}>
-      <span className={cls('label')}>
-        {name} <span className={cls('meta')}>{AUTONOMY_LABELS[name]}</span>
-      </span>
+      <span className={cls('label')}>{AUTONOMY_LABELS[name]}</span>
       <input
         type='checkbox'
         checked={on}
@@ -302,29 +301,24 @@ const AUTH_CHOICES: readonly { value: AccountAuth; label: string }[] = [
 /** The add-an-account form. */
 function NewAccount({ store }: { readonly store: BridgeStore }): ReactNode {
   const [cli, setCli] = useState<CliId>(CLI_IDS[0] ?? 'claude');
-  const [id, setId] = useState('');
   const [auth, setAuth] = useState<AccountAuth>('session');
   const [endpoint, setEndpoint] = useState('');
   const [token, setToken] = useState('');
   const [model, setModel] = useState('');
 
   const add = async (): Promise<void> => {
-    const trimmed = id.trim();
-    if (trimmed.length === 0) return;
     const request: ControlRequest = auth === 'endpoint'
       ? {
         op: 'account.add',
         cli,
-        id: trimmed,
         auth,
         baseUrl: endpoint.trim(),
         credentialRef: token.trim(),
         ...model.trim().length === 0 ? {} : { model: model.trim() },
       }
-      : { op: 'account.add', cli, id: trimmed, auth };
+      : { op: 'account.add', cli, auth };
     const response = await store.send(request);
     if (response.ok) {
-      setId('');
       setEndpoint('');
       setToken('');
       setModel('');
@@ -343,15 +337,6 @@ function NewAccount({ store }: { readonly store: BridgeStore }): ReactNode {
             <option key={value} value={value}>{value}</option>
           ))}
         </select>
-        <input
-          className={cls('input')}
-          value={id}
-          placeholder='new account id'
-          onChange={(event) => setId(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') void add();
-          }}
-        />
         <select
           value={auth}
           onChange={(event) => setAuth(event.target.value as AccountAuth)}

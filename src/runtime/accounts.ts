@@ -58,7 +58,8 @@ const EMPTY: RegistryDocument = { version: 1, accounts: [], defaults: {} };
 /** What one account needs to be added. */
 export interface AddAccountRequest {
   readonly cli: CliId;
-  readonly id: string;
+  /** Account id; absent means the store mints a free one, so a person never types it. */
+  readonly id?: string;
   readonly label?: string;
   readonly auth: AccountAuth;
   /** Credential reference for an `api-key` or `endpoint` account; defaults to the CLI's usual variable only for `api-key`. */
@@ -209,14 +210,16 @@ export class AccountStore {
    * @throws {BridgeError} for an invalid, reserved, or duplicate id.
    */
   async add(request: AddAccountRequest): Promise<AccountSnapshot> {
-    const id = validateId(request.id);
+    const document = await this.read();
+    const id = request.id === undefined || request.id.trim().length === 0
+      ? allocateId(document, request.cli, request.auth)
+      : validateId(request.id);
     if (id === AMBIENT_ACCOUNT_ID) {
       throw new BridgeError(
         `${AMBIENT_ACCOUNT_ID} is the built-in account and cannot be redefined`,
         'AMBIENT_ACCOUNT',
       );
     }
-    const document = await this.read();
     if (
       document.accounts.some((account) =>
         account.cli === request.cli && account.id === id
@@ -513,6 +516,37 @@ function validateBaseUrl(url: string): string {
     `base URL ${JSON.stringify(url)} must be an http(s) URL`,
     'INVALID_REQUEST',
   );
+}
+
+/**
+ * Mint a fresh account id, so a person never has to type one.
+ *
+ * The id is a directory name and a reference key, but neither is a thing the
+ * user should invent: it is derived from how the account signs in, and a
+ * counter keeps it unique per delegate.
+ * @param document - the registry, to skip ids already taken.
+ * @param cli - the delegate.
+ * @param auth - how the account authenticates, which names the id's prefix.
+ * @returns a free `<prefix>-<n>` id.
+ */
+function allocateId(
+  document: RegistryDocument,
+  cli: CliId,
+  auth: AccountAuth,
+): string {
+  const prefix = auth === 'session'
+    ? 'login'
+    : auth === 'api-key'
+    ? 'key'
+    : 'provider';
+  const taken = new Set(
+    document.accounts
+      .filter((account) => account.cli === cli)
+      .map((account) => account.id),
+  );
+  let n = 1;
+  while (taken.has(`${prefix}-${String(n)}`)) n += 1;
+  return `${prefix}-${String(n)}`;
 }
 
 /** Validate an id, restating the failure in this module's vocabulary. */

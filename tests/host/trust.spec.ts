@@ -140,6 +140,36 @@ describe('isTrustedRequest', () => {
     ).toBe(false);
   });
 
+  it('accepts a non-loopback host with a matching Origin, as a phone on the LAN', () => {
+    expect(
+      isTrustedRequest(
+        request({
+          host: '192.168.1.50:3080',
+          origin: 'http://192.168.1.50:3080',
+        }),
+        [],
+      ),
+    ).toBe(true);
+  });
+
+  it('refuses a non-loopback host whose Origin does not match', () => {
+    expect(
+      isTrustedRequest(
+        request({ host: '192.168.1.50:3080', origin: 'http://evil.test' }),
+        [],
+      ),
+    ).toBe(false);
+  });
+
+  it('accepts a same-origin GET with no Origin, as the state read on a phone', () => {
+    expect(
+      isTrustedRequest(
+        request({ host: '192.168.1.50:3080', 'sec-fetch-site': 'same-origin' }),
+        [],
+      ),
+    ).toBe(true);
+  });
+
   it('accepts an opaque origin, which carries no authority to compare', () => {
     expect(
       isTrustedRequest(request({ host: 'localhost:3080', origin: 'null' }), []),

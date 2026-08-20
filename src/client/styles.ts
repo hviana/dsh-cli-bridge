@@ -75,11 +75,21 @@ export const STYLES = `
 }
 .${CSS_PREFIX}-panel {
   position: absolute; right: 16px; bottom: 16px; pointer-events: auto; z-index: 30;
-  display: flex; flex-direction: column; gap: 10px;
-  max-width: min(520px, calc(100vw - 32px)); max-height: min(70vh, 720px); overflow: auto;
-  padding: 12px 14px; border: 1px solid currentColor; border-radius: 10px;
+  display: flex; flex-direction: column;
+  width: min(520px, calc(100vw - 32px)); max-height: min(80vh, 780px);
+  border: 1px solid currentColor; border-radius: 12px;
   background: Canvas; color: CanvasText; font-size: 12px;
   box-shadow: 0 8px 32px rgb(0 0 0 / 18%);
+  overflow: hidden;
+}
+.${CSS_PREFIX}-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex: none; padding: 10px 14px; border-bottom: 1px solid currentColor;
+}
+.${CSS_PREFIX}-panel-body {
+  display: flex; flex-direction: column; gap: 12px;
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  padding: 12px 14px;
   overscroll-behavior: contain;
 }
 .${CSS_PREFIX}-pill {
@@ -113,6 +123,21 @@ export const STYLES = `
 @media (max-width: 560px) {
   .${CSS_PREFIX}-form .${CSS_PREFIX}-line { flex-direction: column; align-items: stretch; }
   .${CSS_PREFIX}-actions { margin-left: 0; }
+}
+/* On a phone the composer fills the bottom edge, so the floating pill and the
+ * open panel move out of its way: the pill rises above it, and the panel takes
+ * the whole screen instead of hugging the corner it would cover. */
+@media (max-width: 640px) {
+  .${CSS_PREFIX}-pill { right: 12px; bottom: 200px; }
+  /* A full-screen sheet: the head stays pinned and the body scrolls, so nothing
+   * is ever pushed past the screen edge. */
+  .${CSS_PREFIX}-panel {
+    position: fixed; inset: 0;
+    width: auto; max-width: none; max-height: none;
+    border: none; border-radius: 0;
+  }
+  .${CSS_PREFIX}-panel-head { padding: 10px 12px; }
+  .${CSS_PREFIX}-panel-body { padding: 10px 12px; }
 }
 `;
 

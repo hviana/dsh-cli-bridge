@@ -392,7 +392,7 @@ function accountsTool(operations: BridgeOperations): ToolDefinition {
       id: {
         type: 'string',
         description:
-          'Account id: lowercase letters, digits, dot, dash, underscore.',
+          'Account id: lowercase letters, digits, dot, dash, underscore. Omit when adding; a fresh id is made for you.',
       },
       label: {
         type: 'string',
@@ -462,7 +462,7 @@ function accountsTool(operations: BridgeOperations): ToolDefinition {
         case 'add':
           await operations.addAccount({
             cli: cli!,
-            id: id!,
+            ...id === undefined ? {} : { id },
             auth: (args.auth ?? 'session') as AccountAuth,
             ...args.label === undefined ? {} : { label: args.label },
             ...args.credential_ref === undefined
@@ -899,9 +899,9 @@ function requireCli(op: string, cli: CliId | undefined): CliId | undefined {
   return cli;
 }
 
-/** Require an account id for the operations that need one. */
+/** Require an account id for the operations that need one; `add` mints its own. */
 function requireId(op: string, id: string | undefined): string | undefined {
-  if (op === 'list') return id;
+  if (op === 'list' || op === 'add') return id;
   if (id === undefined) {
     throw new BridgeError(`id is required for ${op}`, 'INVALID_REQUEST');
   }

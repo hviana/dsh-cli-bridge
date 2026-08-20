@@ -702,11 +702,15 @@ describe('cli_accounts', () => {
   });
 
   it('requires the arguments each operation needs', async () => {
-    const tool = mount().tools.registered.get('cli_accounts')!;
+    const { tools, operations } = mount();
+    const tool = tools.registered.get('cli_accounts')!;
     await expect(tool.execute({ op: 'add', id: 'work' }, execution())).rejects
       .toThrow(/cli is required/u);
-    await expect(tool.execute({ op: 'add', cli: 'claude' }, execution()))
-      .rejects.toThrow(/id is required/u);
+    // Adding without an id mints one instead of demanding it.
+    await tool.execute({ op: 'add', cli: 'claude' }, execution());
+    expect(
+      (await operations.accounts.list('claude')).map((account) => account.id),
+    ).toEqual(['ambient', 'login-1']);
   });
 });
 

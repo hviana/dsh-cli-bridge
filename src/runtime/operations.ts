@@ -505,7 +505,7 @@ export class BridgeOperations {
       case 'account.add':
         await this.accounts.add({
           cli: request.cli,
-          id: request.id,
+          ...request.id === undefined ? {} : { id: request.id },
           auth: request.auth,
           ...request.label === undefined ? {} : { label: request.label },
           ...request.credentialRef === undefined

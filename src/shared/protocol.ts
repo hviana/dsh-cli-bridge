@@ -469,7 +469,8 @@ export type ControlRequest =
   | {
     readonly op: 'account.add';
     readonly cli: CliId;
-    readonly id: string;
+    /** Account id; absent means the host mints one, so a person never types it. */
+    readonly id?: string;
     readonly label?: string;
     readonly auth: AccountAuth;
     readonly credentialRef?: string;
