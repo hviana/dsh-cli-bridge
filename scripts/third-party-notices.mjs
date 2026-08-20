@@ -44,9 +44,12 @@ async function inlined(mapPath) {
   const map = JSON.parse(await readFile(mapPath, 'utf8'));
   const found = new Map();
   for (const source of map.sources ?? []) {
-    const marker = source.lastIndexOf('node_modules/');
+    // Source maps name their sources with backslashes on Windows; normalize to
+    // forward slashes so the marker and segments match on every platform.
+    const normalized = source.replaceAll('\\', '/');
+    const marker = normalized.lastIndexOf('node_modules/');
     if (marker < 0) continue;
-    const parts = source.slice(marker + 'node_modules/'.length).split('/');
+    const parts = normalized.slice(marker + 'node_modules/'.length).split('/');
     const segments = parts[0]?.startsWith('@')
       ? parts.slice(0, 2)
       : parts.slice(0, 1);
@@ -56,7 +59,7 @@ async function inlined(mapPath) {
       name,
       resolve(
         dirname(mapPath),
-        source.slice(0, marker + 'node_modules/'.length),
+        normalized.slice(0, marker + 'node_modules/'.length),
         ...segments,
       ),
     );
