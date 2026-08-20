@@ -14,6 +14,7 @@ import {
   formatUsage,
   pillLabel,
   runElapsed,
+  statusLabel,
   toolchainSourceLabel,
 } from '../../src/client/format.ts';
 import type {
@@ -217,17 +218,19 @@ describe('describeMerge', () => {
 
 describe('pillLabel', () => {
   it('says nothing but its name when nothing is happening', () => {
-    expect(pillLabel({ waiting: 0, running: 0 })).toBe('delegates');
+    expect(pillLabel({ waiting: 0, running: 0 })).toBe('Claude Code & Codex');
   });
 
   it('counts what is running', () => {
-    expect(pillLabel({ waiting: 0, running: 2 })).toBe('delegates · 2 running');
+    expect(pillLabel({ waiting: 0, running: 2 })).toBe(
+      'Claude Code & Codex · 2 running',
+    );
   });
 
-  it('puts a delegate waiting on the human ahead of busy ones', () => {
+  it('puts a task waiting on the human ahead of busy ones', () => {
     // Nothing moves until somebody comes back, so that is the state to surface.
     expect(pillLabel({ waiting: 1, running: 3 })).toBe(
-      'delegates · 1 waiting on you',
+      'Claude Code & Codex · 1 waiting on you',
     );
   });
 });
@@ -281,7 +284,9 @@ describe('describeAccount', () => {
       auth: 'endpoint',
       baseUrl: 'https://api.deepseek.com/anthropic',
       model: 'deepseek-chat',
-    })).toBe('endpoint · deepseek-chat @ https://api.deepseek.com/anthropic');
+    })).toBe(
+      'custom provider · deepseek-chat @ https://api.deepseek.com/anthropic',
+    );
   });
 
   it('falls back to the base URL when an endpoint account names no model', () => {
@@ -292,7 +297,7 @@ describe('describeAccount', () => {
         baseUrl: 'https://x.example',
       }),
     )
-      .toBe('endpoint · https://x.example');
+      .toBe('custom provider · https://x.example');
   });
 });
 
@@ -336,11 +341,22 @@ describe('describeDecision', () => {
 
 describe('toolchainSourceLabel', () => {
   it.each<[ToolchainStatus['source'], string]>([
-    ['managed', 'installed'],
-    ['path', 'installed'],
+    ['managed', 'ready'],
+    ['path', 'ready'],
     ['configured', 'custom'],
-    ['missing', 'not installed'],
+    ['missing', 'not ready'],
   ])('labels %s', (source, expected) => {
     expect(toolchainSourceLabel(source)).toBe(expected);
+  });
+});
+
+describe('statusLabel', () => {
+  it.each<[string, string]>([
+    ['needs_direction', 'asks you'],
+    ['awaiting-human', 'waiting on you'],
+    ['running', 'running'],
+    ['completed', 'completed'],
+  ])('labels %s', (status, expected) => {
+    expect(statusLabel(status)).toBe(expected);
   });
 });

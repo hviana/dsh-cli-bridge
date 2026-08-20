@@ -196,21 +196,20 @@ function taskFields(defaultCli: CliId) {
     cli: {
       type: 'string',
       enum: [...CLI_IDS],
-      description:
-        `Which agent to use (claude or codex). Defaults to ${defaultCli}.`,
+      description: `Claude Code or Codex. Defaults to ${defaultCli}.`,
     },
     account: {
       type: 'string',
-      description: "Account to run as. Defaults to that agent's default.",
+      description: 'Account to use. Leave empty for the default.',
     },
     model: {
       type: 'string',
-      description: "Model to use. Defaults to the agent's own.",
+      description: 'Model to use. Leave empty for the default.',
     },
     effort: {
       type: 'string',
       enum: [...EFFORT_LEVELS],
-      description: 'How hard the agent should think.',
+      description: 'How hard it should think.',
     },
   } as const satisfies ParameterSchemaSpec;
 }
@@ -270,7 +269,7 @@ function delegateAllTool(
   return defineTool({
     name: 'cli_delegate_all',
     description: [
-      'Hand several independent tasks to Claude Code or Codex at once — optionally different agents and',
+      'Hand several independent tasks to Claude Code or Codex at once — optionally both, with different',
       'accounts — and wait for all of them. Each task runs in its own isolated branch so they cannot overwrite',
       'each other, and finished work is merged back automatically, one at a time. Use this when the tasks are',
       'genuinely independent; use cli_delegate when one task depends on another. Anything that could not be',
@@ -321,16 +320,16 @@ function replyTool(operations: BridgeOperations): ToolDefinition {
   return defineTool({
     name: 'cli_reply',
     description: [
-      'Continue a task that stopped to ask a question: answer it, or send follow-up work. The agent picks up',
-      'its own session with everything it already did still in context, under the same account, model and',
-      'settings. Returns the same result as cli_delegate.',
+      'Continue a task that stopped to ask a question: answer it, or send follow-up work. It picks up its own',
+      'session with everything it already did still in context, under the same account, model and settings.',
+      'Returns the same result as cli_delegate.',
     ].join(' '),
     parameters: {
       delegation: {
         type: 'string',
         required: true,
         description:
-          'Delegation id from a previous cli_delegate, cli_delegate_all or cli_reply result.',
+          'Task id from a previous cli_delegate, cli_delegate_all or cli_reply result.',
       },
       message: {
         type: 'string',
@@ -374,9 +373,9 @@ function accountsTool(operations: BridgeOperations): ToolDefinition {
     description: [
       'List or manage the accounts Claude Code and Codex sign in with. Each account is a separate, private',
       'sign-in, so several subscriptions or API keys coexist on one machine. The built-in "ambient" account',
-      'runs an agent exactly as the user already configured it. Signing in opens a sign-in box in the web',
+      'runs Claude Code or Codex exactly as the user already configured it. Signing in opens a sign-in box in the web',
       'interface, where the user types their code and presses Enter. Tell the user they can do all of this',
-      'themselves in the panel too — either path works.',
+      'themselves in the web interface too — either path works.',
     ].join(' '),
     parameters: {
       op: {
@@ -388,7 +387,7 @@ function accountsTool(operations: BridgeOperations): ToolDefinition {
       cli: {
         type: 'string',
         enum: [...CLI_IDS],
-        description: 'Which agent (claude or codex). Required except for list.',
+        description: 'Claude Code or Codex. Required except for list.',
       },
       id: {
         type: 'string',
@@ -403,7 +402,7 @@ function accountsTool(operations: BridgeOperations): ToolDefinition {
         type: 'string',
         enum: ['session', 'api-key', 'endpoint'],
         description:
-          "How it signs in: the agent's own login, an API key, or a custom endpoint.",
+          'How it signs in: its own login, an API key, or another provider.',
       },
       credential_ref: {
         type: 'string',
@@ -524,8 +523,8 @@ function toolchainTool(operations: BridgeOperations): ToolDefinition {
   return defineTool({
     name: 'cli_toolchain',
     description: [
-      'Inspect, install or update Claude Code and Codex themselves. A missing agent is normally installed on',
-      'first use, so this is mainly for checking versions or forcing an update.',
+      'Check or update Claude Code and Codex. A missing one is set up automatically on first use, so this is',
+      'mainly for checking versions or getting the latest.',
     ].join(' '),
     parameters: {
       op: {
@@ -537,7 +536,7 @@ function toolchainTool(operations: BridgeOperations): ToolDefinition {
       cli: {
         type: 'string',
         enum: [...CLI_IDS],
-        description: 'Which delegate. Required for install and update.',
+        description: 'Claude Code or Codex. Required except for status.',
       },
     },
     output: {

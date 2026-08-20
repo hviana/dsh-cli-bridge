@@ -64,7 +64,7 @@ export function createBridgePanel(store: BridgeStore): () => ReactNode {
     return (
       <div className={cls('panel')}>
         <div className={cls('line')}>
-          <strong>Delegates</strong>
+          <strong>Claude Code &amp; Codex</strong>
           <button
             type='button'
             className={cls('button')}
@@ -79,7 +79,7 @@ export function createBridgePanel(store: BridgeStore): () => ReactNode {
         )}
 
         <section className={cls('section')}>
-          <h4>Toolchain</h4>
+          <h4>Status</h4>
           {state.toolchain.map((entry) => (
             <ToolchainLine key={entry.cli} entry={entry} store={store} />
           ))}
@@ -98,10 +98,10 @@ export function createBridgePanel(store: BridgeStore): () => ReactNode {
         </section>
 
         <section className={cls('section')}>
-          <h4>Autonomy</h4>
+          <h4>On its own</h4>
           <span className={cls('meta')}>
-            What DeepSeek may decide by itself while an agent works. Off means
-            you answer.
+            What DeepSeek may decide on its own while Claude Code or Codex
+            works. Off means you answer.
           </span>
           {AUTONOMY_SWITCHES.map((name) => (
             <AutonomyLine
@@ -130,7 +130,7 @@ export function createBridgePanel(store: BridgeStore): () => ReactNode {
         </section>
 
         <section className={cls('section')}>
-          <h4>Sign-ins &amp; installs</h4>
+          <h4>Sign-ins</h4>
           {loose.length === 0 && (
             <span className={cls('meta')}>nothing yet</span>
           )}
@@ -217,7 +217,7 @@ function ToolchainLine(
           void run();
         }}
       >
-        {entry.source === 'missing' ? 'install' : 'update'}
+        {entry.source === 'missing' ? 'get ready' : 'update'}
       </button>
     </div>
   );
@@ -296,7 +296,7 @@ function AccountLine({
 const AUTH_CHOICES: readonly { value: AccountAuth; label: string }[] = [
   { value: 'session', label: 'login' },
   { value: 'api-key', label: 'api key' },
-  { value: 'endpoint', label: 'endpoint' },
+  { value: 'endpoint', label: 'custom provider' },
 ];
 
 /** The add-an-account form. */

@@ -35,17 +35,16 @@ export type ParsedCliCommand =
 
 /** The command's own help, shown for `/cli help` and for a line that does not parse. */
 export const CLI_COMMAND_HELP = [
-  '/cli                                  show delegates, accounts and recent runs',
-  '/cli install <claude|codex>           install or update a delegate CLI',
-  '/cli update <claude|codex>            same as install; refreshes to the latest',
-  '/cli login <claude|codex> <account>   sign in — a box opens in the panel to type your code',
-  '/cli account add <cli> <id> [--api-key [REF]] [--endpoint <url> --token <REF> [--model <id>]] [--label <text>]',
-  '/cli account remove <cli> <id>',
-  '/cli account default <cli> <id>',
-  '/cli cancel <run-id>                  stop a running delegate',
-  '/cli direct <delegation-id> <text>    steer a live delegation; overrides any automatic decision',
-  '/cli stop <delegation-id>             stop a delegation and every round it had left',
-  '/cli auto <decide|continue|review> <on|off>   let DeepSeek decide, continue, or review by itself',
+  '/cli                                  see Claude Code & Codex, your accounts, and recent work',
+  '/cli update <claude|codex>            get the latest Claude Code or Codex',
+  '/cli login <claude|codex> <account>   sign in to an account — a box opens to type the code',
+  '/cli account add <cli> <id>           add an account (log in, or --api-key for a key)',
+  '/cli account default <cli> <id>       choose the account used by default',
+  '/cli account remove <cli> <id>        remove an account',
+  '/cli direct <task-id> <text>          tell a running task what to do next',
+  '/cli stop <task-id>                   stop a task and everything it had left',
+  '/cli cancel <run-id>                  stop something that is still running',
+  '/cli auto <decide|continue|review> <on|off>   let DeepSeek answer, continue, and review by itself',
 ].join('\n');
 
 /** The automatic decisions `/cli auto` can switch. */
@@ -98,7 +97,7 @@ export function parseCliCommand(rawInput: string): ParsedCliCommand {
       return groups === undefined
         ? {
           kind: 'error',
-          message: 'usage: /cli direct <delegation-id> <instruction>',
+          message: 'usage: /cli direct <task-id> <instruction>',
         }
         : {
           kind: 'control',
@@ -129,7 +128,7 @@ export function parseCliCommand(rawInput: string): ParsedCliCommand {
     case 'stop': {
       const delegation = rest[0];
       return delegation === undefined
-        ? { kind: 'error', message: 'usage: /cli stop <delegation-id>' }
+        ? { kind: 'error', message: 'usage: /cli stop <task-id>' }
         : { kind: 'control', request: { op: 'delegation.cancel', delegation } };
     }
     case 'cancel': {
@@ -239,10 +238,10 @@ export function registerCommand(
       scope.commands.register({
         name: 'cli',
         description:
-          'Manage the Claude Code and Codex delegates, their accounts, and their runs.',
+          'Manage Claude Code and Codex, their accounts, and their work.',
         input: {
           hint:
-            'status | install <cli> | login <cli> <account> | account … | direct <delegation> <text>',
+            'see what is ready · update claude|codex · login claude|codex <account> · account add …',
         },
         async handler(invocation): Promise<CommandResult> {
           const parsed = parseCliCommand(invocation.rawInput);
@@ -276,16 +275,16 @@ export function registerCommand(
 function toolchainSourceText(source: ToolchainStatus['source']): string {
   switch (source) {
     case 'missing':
-      return 'not installed';
+      return 'not ready';
     case 'configured':
       return 'custom';
     default:
-      return 'installed';
+      return 'ready';
   }
 }
 
 export function renderState(state: BridgeState): string {
-  const lines: string[] = ['Delegates'];
+  const lines: string[] = ['Claude Code & Codex'];
   for (const entry of state.toolchain) {
     const version = entry.version === undefined ? '' : ` ${entry.version}`;
     lines.push(
@@ -310,7 +309,7 @@ export function renderState(state: BridgeState): string {
     '',
     `Autonomy: ${
       on.length === 0
-        ? 'off — you answer, and a task ends when the agent says it is done'
+        ? 'off — you answer, and a task ends when it says it is done'
         : on.join(', ')
     }`,
   );

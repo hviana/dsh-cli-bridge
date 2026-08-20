@@ -128,10 +128,10 @@ export class Toolchain {
     if (located !== undefined) return located;
     if (this.config.mode !== 'managed' || !this.config.autoInstall) {
       throw new BridgeError(
-        `${adapterFor(cli).displayName} is not installed` +
+        `${adapterFor(cli).displayName} is not available` +
           (this.config.mode === 'managed'
-            ? ' and toolchain.autoInstall is off'
-            : ` and toolchain.mode is ${this.config.mode}`),
+            ? ' and automatic setup is off'
+            : ` and setup is set to ${this.config.mode}`),
         this.config.mode === 'managed' ? 'CLI_MISSING' : 'TOOLCHAIN_DISABLED',
       );
     }

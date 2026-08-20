@@ -19,8 +19,7 @@
 
 # `dsh-cli-bridge`
 
-The built-in delegates hand you the final result. This one hands you the whole
-run.
+Other tools hand you the final result. This one shows you the whole job, live.
 
 [![npm](https://img.shields.io/npm/v/dsh-cli-bridge?color=cb3837&logo=npm)](https://www.npmjs.com/package/dsh-cli-bridge)
 [![ci](https://github.com/hviana/dsh-cli-bridge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/hviana/dsh-cli-bridge/actions/workflows/ci.yml)
@@ -34,55 +33,55 @@ run.
 
 ## What it does
 
-**One tool call from DeepSeek Harness. A real agent doing real work — on screen,
-in real time, under your control.**
+**One request in the chat. Claude Code or Codex doing real work — on screen, in
+real time, under your control.**
 
-`dsh-cli-bridge` delegates work to **Claude Code** and **Codex**, then keeps you
-and DeepSeek Harness in the loop for the entire run:
+`dsh-cli-bridge` hands work to **Claude Code** and **Codex**, then keeps you and
+DeepSeek Harness in the loop for the whole job:
 
-| **📺 Watch it live**                                                                                                            | **🧠 Give DSH the wheel**                                                                                                                              | **🛠️ Nothing to set up**                                                                                           |
-| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| Every tool call, every file changed, every line of reasoning streams into DSH as it happens — not a spinner, not a final paste. | DeepSeek Harness can steer, answer, and review the delegate's work on its own, round after round — or hand you the question when it should not decide. | The plugin finds, installs, and updates Claude Code and Codex itself. You install one plugin; it manages the rest. |
+| **📺 Watch it live**                                                                                                      | **🧠 Give DSH the wheel**                                                                                                         | **🛠️ Nothing to set up**                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Every command, every file changed, every line of thought appears in DSH as it happens — not a spinner, not a final paste. | DeepSeek can steer, answer, and review the work on its own, step after step — or hand you the question when it should not decide. | It handles Claude Code and Codex for you. You install one plugin; it takes care of the rest. |
 
 > [!IMPORTANT]
-> **Why this exists** — the built-in `claude` and `codex` delegates call the CLI
-> like a tool and return only the final message. The whole run happens in the
-> dark, and the transcript costs you tokens twice. `dsh-cli-bridge` puts the run
-> on screen, keeps the transcript out of your model's context, and gives the
-> harness the controls.
+> **Why this exists** — the built-in Claude Code and Codex integration runs in
+> the background and returns only the final message. You can't see what it is
+> doing, and it bills you twice. `dsh-cli-bridge` shows the whole job on screen,
+> keeps the details out of your conversation, and gives DeepSeek the controls.
 
 ---
 
 ## The difference
 
-| A built-in delegate call                    | ✨ `dsh-cli-bridge`                                           |
-| ------------------------------------------- | ------------------------------------------------------------- |
-| ❌ hands back only the final result         | ✅ the whole run, streamed live into DSH                      |
-| ❌ DeepSeek just reads the answer           | ✅ DeepSeek steers, answers, and reviews the delegate         |
-| ❌ you install and update the CLIs yourself | ✅ the plugin installs and updates them                       |
-| ❌ one login, configured by hand            | ✅ many isolated accounts, side by side                       |
-| ❌ tasks share one workspace                | ✅ a git worktree per task, merged back automatically         |
-| ❌ Claude Code talks to Anthropic only      | ✅ Claude Code + Codex, and any Anthropic-compatible endpoint |
+| The built-in way                       | ✨ `dsh-cli-bridge`                                       |
+| -------------------------------------- | --------------------------------------------------------- |
+| ❌ you get only the final result       | ✅ the whole job, live in DSH                             |
+| ❌ DeepSeek just reads the answer      | ✅ DeepSeek steers, answers, and reviews the work         |
+| ❌ you set them up yourself            | ✅ everything is set up for you                           |
+| ❌ one login, set up by hand           | ✅ many separate accounts, side by side                   |
+| ❌ tasks share one folder              | ✅ each task gets its own copy, merged back automatically |
+| ❌ Claude Code talks to Anthropic only | ✅ Claude Code + Codex, plus any compatible provider      |
 
 ---
 
 ## And the rest
 
-The headline is the live run. The rest is what makes it safe to let an agent
-loose on a repository:
+The headline is watching it live. The rest is what makes it safe to let Claude
+Code or Codex loose on a project:
 
-- **👥 Multi-account, isolated** — every account is a directory; each login
-  lives in its own home and never touches another.
-- **🌐 Any endpoint** — Claude Code can reach DeepSeek, OpenRouter, or any
-  Anthropic-compatible provider, by base URL + token.
-- **🌿 Worktrees & automatic merge** — parallel tasks each get their own branch;
-  finished work merges back `--no-ff`, one at a time, conflicts kept for you.
-- **🧭 A deterministic hand-back** — the delegate states when it needs a
-  decision, and the protocol is fixed rather than guessed from prose.
-- **🔒 Inherited permissions** — the harness's own Read Only / Workspace Write /
-  Full Access mode is the whole policy; the plugin invents none.
-- **⚙️ Model & effort per call** — each delegation names its own model and
-  effort, or inherits sensible defaults.
+- **👥 Multi-account, isolated** — each account is kept separate; one login
+  never touches another.
+- **🌐 Any provider** — Claude Code can reach DeepSeek, OpenRouter, or any
+  compatible provider.
+- **🌿 Its own copy & automatic merge** — several tasks each get their own copy;
+  finished work is merged back automatically, one at a time, and conflicts are
+  kept for you.
+- **🧭 It asks clearly** — when it needs a decision, it asks you plainly instead
+  of guessing.
+- **🔒 Respects your settings** — it follows your Read Only / Workspace Write /
+  Full Access choice, and adds no rules of its own.
+- **⚙️ Model & effort per task** — each task can name its own model and how hard
+  to try, or use sensible defaults.
 
 ---
 
@@ -96,24 +95,77 @@ dsh plugin --profile web add dsh-cli-bridge
 
 ## Usage
 
-Just ask in the chat — DeepSeek guides you and does most of the setup itself
-(installing agents, adding accounts, and handing off work).
+### Getting started
 
-1. **Install** an agent in the panel (the `install` button).
-2. **Sign in** to your accounts (`sign in`): type the code into the box that
-   opens.
-3. **Ask** for something in the chat — DeepSeek picks an agent and runs it,
-   streaming everything into the panel.
-4. **Watch** it live; if an agent asks you a question, answer it right there.
+1. **Install** the plugin once, in a terminal:
 
-Manual (default) or hands-off: the _Autonomy_ switches in the panel.
+   ```sh
+   dsh plugin --profile web add dsh-cli-bridge
+   ```
+
+2. **Open** DeepSeek Harness and start a conversation.
+
+3. **Ask**, in the message box, what you want. For example:
+
+   > "Use Claude Code to add a login page."
+
+   DeepSeek takes it from there: it walks you through signing in (a box opens in
+   the browser for the code) and runs the work with Claude Code or Codex while
+   you watch.
+
+### Signing in (accounts)
+
+The first time you ask for something, DeepSeek helps you sign in to Claude Code
+or Codex. A box opens in the browser — type the code and press Enter.
+
+Each account stays separate, so you can keep more than one. Just ask:
+
+- "Add my other Claude Code account."
+- "Make that one the default."
+- "Use my Claude Code API key instead of a login."
+
+### What you can ask for
+
+- **One task** — "Use Claude Code to fix the failing tests."
+- **Several tasks at once** — "Use Codex to add the login page, and Claude Code
+  to write the tests." Each runs on its own copy of the project and is merged
+  back when done.
+- **A specific model or effort** — you can also name a model, or ask it to think
+  harder.
+
+### Manual or automatic
+
+By default, nothing happens without you: if Claude Code or Codex has a question,
+it asks you, right in the chat.
+
+To let it work more on its own, type `/cli auto decide on` (it answers its own
+questions), `/cli auto continue on` (it keeps going through remaining work), and
+`/cli auto review on` (it checks the finished work). Use `off` instead of `on`
+to undo any of them.
+
+### Watching and steering
+
+Everything runs live in the conversation — every command, every file change.
+While it runs you can answer its questions, tell it what to do next, or stop it.
+
+### Where the work goes
+
+One task runs right in your project. Several at once each run on their own copy
+(a git branch) and are merged back when done. If two changes touch the same
+line, nothing is lost — you are told there is a conflict to resolve.
+
+### Doing it yourself (optional)
+
+You never need to. But typing `/cli` shows what's ready and your accounts, and
+`/cli login claude personal` and `/cli auto` let you drive it by hand if you
+prefer.
 
 ---
 
 ## Support
 
 `dsh-cli-bridge` is **free to use** and funded by the people it saves money. If
-it keeps delegate spend off your model bill, sponsor it.
+it keeps the Claude Code / Codex bill off your own, sponsor it.
 
 <p align="center">
   <a href="https://github.com/sponsors/hviana">

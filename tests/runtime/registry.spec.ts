@@ -333,7 +333,7 @@ describe('failure and cancellation', () => {
     const started = await registry.start(task);
     const end = await started.settled;
     expect(end.status).toBe('failed');
-    expect(end.error).toMatch(/npmCommand|not installed/u);
+    expect(end.error).toMatch(/npmCommand|not available/u);
     expect(runs.list()).toBeDefined();
   });
 

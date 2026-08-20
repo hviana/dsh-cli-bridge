@@ -22,6 +22,7 @@ import {
   describeDelegation,
   describeMerge,
   directionCopy,
+  statusLabel,
 } from './format.ts';
 import { RunStream } from './RunStream.tsx';
 import type { BridgeStore, RunView } from './store.ts';
@@ -52,7 +53,7 @@ export function DelegationView(
       <div className={cls('head')}>
         <span className={cls('title')}>{delegation.label}</span>
         <span className={cls('badge')} data-status={delegation.status}>
-          {delegation.status.replace(/[-_]/gu, ' ')}
+          {statusLabel(delegation.status)}
         </span>
         <span className={cls('meta')}>
           {describeDelegation(delegation, Date.now())}

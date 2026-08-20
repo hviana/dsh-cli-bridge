@@ -400,8 +400,8 @@ export function describeAuth(
   if (snapshot.auth === 'session') return `${adapter.displayName} login`;
   if (snapshot.auth === 'endpoint') {
     const target = snapshot.model === undefined
-      ? snapshot.baseUrl ?? 'custom endpoint'
-      : `${snapshot.model} @ ${snapshot.baseUrl ?? 'custom endpoint'}`;
+      ? snapshot.baseUrl ?? 'custom provider'
+      : `${snapshot.model} @ ${snapshot.baseUrl ?? 'custom provider'}`;
     return `${target} (${snapshot.credentialRef ?? 'token'} ${
       snapshot.credentialConfigured === true ? 'configured' : 'not configured'
     })`;

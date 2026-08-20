@@ -48,9 +48,9 @@ export function describeAccount(account: AccountSnapshot): string {
   switch (account.auth) {
     case 'endpoint': {
       const target = account.model === undefined
-        ? account.baseUrl ?? 'custom endpoint'
-        : `${account.model} @ ${account.baseUrl ?? 'custom endpoint'}`;
-      return `endpoint · ${target}${
+        ? account.baseUrl ?? 'custom provider'
+        : `${account.model} @ ${account.baseUrl ?? 'custom provider'}`;
+      return `custom provider · ${target}${
         account.credentialConfigured === false ? ' · not configured' : ''
       }`;
     }
@@ -69,12 +69,23 @@ export function toolchainSourceLabel(
 ): string {
   switch (source) {
     case 'missing':
-      return 'not installed';
+      return 'not ready';
     case 'configured':
       return 'custom';
     default:
-      return 'installed';
+      return 'ready';
   }
+}
+
+/** The statuses whose enum spelling is not a word a person reads. */
+const STATUS_LABELS: Readonly<Record<string, string>> = {
+  needs_direction: 'asks you',
+  'awaiting-human': 'waiting on you',
+};
+
+/** A run or task status, in the watcher's words. */
+export function statusLabel(status: string): string {
+  return STATUS_LABELS[status] ?? status.replace(/[-_]/gu, ' ');
 }
 
 /** One-line usage summary, or an empty string when the delegate reported none. */
@@ -155,11 +166,11 @@ export function pillLabel(
   counts: { readonly waiting: number; readonly running: number },
 ): string {
   if (counts.waiting > 0) {
-    return `delegates · ${String(counts.waiting)} waiting on you`;
+    return `Claude Code & Codex · ${String(counts.waiting)} waiting on you`;
   }
   return counts.running > 0
-    ? `delegates · ${String(counts.running)} running`
-    : 'delegates';
+    ? `Claude Code & Codex · ${String(counts.running)} running`
+    : 'Claude Code & Codex';
 }
 
 /**

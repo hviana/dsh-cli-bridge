@@ -17,6 +17,7 @@ import {
   formatBytes,
   formatUsage,
   runElapsed,
+  statusLabel,
 } from './format.ts';
 import { cls } from './styles.ts';
 import type { RunView } from './store.ts';
@@ -45,7 +46,7 @@ export function RunStream(
       <div className={cls('head')}>
         <span className={cls('title')}>{view.snapshot?.label ?? view.id}</span>
         <span className={cls('badge')} data-status={status}>
-          {status.replace('_', ' ')}
+          {statusLabel(status)}
         </span>
         <span className={cls('meta')}>{describeRun(view)}</span>
         {actions}
@@ -86,8 +87,8 @@ export function RunStream(
             onClick={() => setShowLog(!showLog)}
           >
             {showLog
-              ? 'hide raw output'
-              : `show raw output (${
+              ? 'hide full log'
+              : `show full log (${
                 formatBytes(view.snapshot?.bytes ?? view.output.length)
               })`}
           </button>
