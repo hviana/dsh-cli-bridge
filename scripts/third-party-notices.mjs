@@ -161,9 +161,22 @@ const document = [
 if (process.argv.includes('--check')) {
   const current = await readFile(NOTICES, 'utf8').catch(() => undefined);
   if (current !== document) {
+    const currentLines = (current ?? '').split('\n');
+    const documentLines = document.split('\n');
+    const firstDiff = currentLines.findIndex(
+      (line, index) => line !== documentLines[index],
+    );
+    const detail = firstDiff >= 0
+      ? `first difference at line ${String(firstDiff + 1)}:\n` +
+        `  committed: ${JSON.stringify(currentLines[firstDiff])}\n` +
+        `  generated: ${JSON.stringify(documentLines[firstDiff])}\n`
+      : `committed has ${String(currentLines.length)} lines, generated has ${
+        String(documentLines.length)
+      }\n`;
     process.stderr.write(
       'THIRD-PARTY-NOTICES.md does not match the built bundles.\n' +
-        'Run `pnpm run notices` and commit the result.\n',
+        'Run `pnpm run notices` and commit the result.\n' +
+        detail,
     );
     process.exit(1);
   }
