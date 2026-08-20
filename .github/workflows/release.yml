@@ -12,8 +12,9 @@ on:
 
 permissions:
   contents: read
-  # Required for npm provenance: the registry records which workflow, at which
-  # commit, produced the tarball.
+  # Required for npm trusted publishing (OIDC): GitHub mints a short-lived
+  # identity token, and the npm registry exchanges it against the trusted
+  # publisher configured on the package. No NPM_TOKEN is involved.
   id-token: write
 
 jobs:
@@ -33,6 +34,10 @@ jobs:
       - name: install
         run: pnpm install --frozen-lockfile
 
+      # Trusted publishing (OIDC) needs npm >= 11.5.1; Node 24 bundles an older npm.
+      - name: update npm for trusted publishing
+        run: npm install -g npm@latest
+
       - name: verify everything the tag claims
         run: pnpm run check
 
@@ -48,9 +53,9 @@ jobs:
 
       - name: publish
         if: startsWith(github.ref, 'refs/tags/v')
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # Trusted publishing (OIDC) needs no token: provenance is generated
+        # automatically, and auth comes from the id-token above.
+        run: npm publish --access public
 
       - name: pack only
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
