@@ -31,15 +31,16 @@ export const nodeFiles: FilePort = {
    * Write through a temporary file in the same directory, then rename.
    *
    * The rename is what makes it atomic: a reader sees either the old document
-   * or the new one, never a half-written registry — and `rename` replaces an
-   * existing file on Windows as well as POSIX, so the sequence is one code path.
+   * or the new one, never a half-written registry. The rename is retried a few
+   * times because a concurrent writer can hold the destination for a moment,
+   * which surfaces as a transient `EPERM`/`EBUSY` rather than a real failure.
    */
   async writeText(path: string, text: string): Promise<void> {
     await mkdir(dirname(path), { recursive: true });
     const staging = join(dirname(path), `.${randomUUID()}.tmp`);
     try {
       await writeFile(staging, text, 'utf8');
-      await rename(staging, path);
+      await renameOver(staging, path);
     } catch (error) {
       await rm(staging, { force: true }).catch(() => undefined);
       throw error;
@@ -129,4 +130,29 @@ function userQuestionsOf(ctx: Context): UserQuestionsPort | undefined {
 /** Whether a filesystem error means "there is nothing there". */
 function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
+}
+
+/**
+ * Rename over any existing destination, retrying a transient lock.
+ *
+ * A rename can briefly fail with `EPERM`/`EBUSY`/`EEXIST` when another writer
+ * is replacing the same destination at the same instant; a short back-off
+ * absorbs that race without masking a genuine failure.
+ * @param from - the staging file.
+ * @param to - the final path.
+ */
+async function renameOver(from: string, to: string, attempt = 0): Promise<void> {
+  try {
+    await rename(from, to);
+  } catch (error) {
+    if (!isTransientLock(error) || attempt >= 4) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
+    await renameOver(from, to, attempt + 1);
+  }
+}
+
+/** Whether a rename failure is a transient lock rather than a real error. */
+function isTransientLock(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY' || code === 'EEXIST';
 }

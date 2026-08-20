@@ -25,17 +25,16 @@ if (!buildable) {
   process.exit(0);
 }
 
-// On Windows npm is a `.cmd` shim, which cannot be spawned without a shell —
-// the same rule the plugin's own launcher enforces for the delegate CLIs.
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const { status, error } = spawnSync(npm, ['run', 'build'], {
+// A shell makes the same invocation run everywhere: `npm` is a binary on POSIX
+// and a batch shim on Windows.
+const { status, error } = spawnSync('npm', ['run', 'build'], {
   cwd: root,
   stdio: 'inherit',
-  shell: process.platform === 'win32',
+  shell: true,
 });
 if (error !== undefined) {
   process.stderr.write(
-    `dsh-cli-bridge: prepare failed to spawn ${npm}: ${error.message}\n`,
+    `dsh-cli-bridge: prepare failed to spawn npm: ${error.message}\n`,
   );
 }
 process.exit(status ?? 1);

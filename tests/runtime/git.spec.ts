@@ -89,6 +89,10 @@ beforeEach(async () => {
     maxOutputBytes: 8192,
   });
   await raw(repository, 'init', '--initial-branch=main');
+  // Keep line endings LF on every platform, so the fixtures round-trip the
+  // exact bytes the tests wrote rather than the platform's native form.
+  await raw(repository, 'config', 'core.autocrlf', 'false');
+  await raw(repository, 'config', 'core.eol', 'lf');
   await raw(repository, 'config', 'user.email', 'bridge@test.invalid');
   await raw(repository, 'config', 'user.name', 'Bridge Test');
   await writeFile(join(repository, 'README.md'), 'base\n', 'utf8');

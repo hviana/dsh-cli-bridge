@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   assertAccountId,
@@ -11,7 +11,7 @@ import {
 describe('resolveStateDir', () => {
   it('derives from the harness home', () => {
     expect(resolveStateDir('', { DSH_HOME: '/srv/dsh' })).toBe(
-      join('/srv/dsh', 'cli-bridge'),
+      join(resolve('/srv/dsh'), 'cli-bridge'),
     );
   });
 
@@ -27,7 +27,7 @@ describe('resolveStateDir', () => {
 
   it('honours an explicit configuration', () => {
     expect(resolveStateDir('/opt/bridge', { DSH_HOME: '/srv/dsh' })).toBe(
-      '/opt/bridge',
+      resolve('/opt/bridge'),
     );
   });
 });

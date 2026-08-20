@@ -12,15 +12,12 @@ concurrency:
 
 jobs:
   check:
-    # Linux and macOS run the whole suite. Windows is intentionally not in the
-    # matrix yet: the runtime is Windows-aware, but several tests still assume
-    # POSIX paths and LF line endings, so they fail on `windows-latest`.
     name: ${{ matrix.os }} · node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node: ['24']
 
     steps:
