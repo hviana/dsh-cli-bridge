@@ -17,7 +17,12 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { DelegationSnapshot } from '../shared/protocol.ts';
-import { describeDelegation, describeMerge, directionCopy } from './format.ts';
+import {
+  describeDecision,
+  describeDelegation,
+  describeMerge,
+  directionCopy,
+} from './format.ts';
 import { RunStream } from './RunStream.tsx';
 import type { BridgeStore, RunView } from './store.ts';
 import { cls } from './styles.ts';
@@ -99,7 +104,7 @@ export function DelegationView(
                 {`round ${String(decision.round)}`}
               </span>
               <span className={cls('activity-text')}>
-                {`${decision.kind} · ${decision.source} — ${decision.reason}`}
+                {describeDecision(decision)}
               </span>
             </li>
           ))}

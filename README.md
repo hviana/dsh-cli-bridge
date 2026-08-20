@@ -94,6 +94,22 @@ dsh plugin --profile web add dsh-cli-bridge
 
 ---
 
+## Usage
+
+Just ask in the chat — DeepSeek guides you and does most of the setup itself
+(installing agents, adding accounts, and handing off work).
+
+1. **Install** an agent in the panel (the `install` button).
+2. **Sign in** to your accounts (`sign in`): type the code into the box that
+   opens.
+3. **Ask** for something in the chat — DeepSeek picks an agent and runs it,
+   streaming everything into the panel.
+4. **Watch** it live; if an agent asks you a question, answer it right there.
+
+Manual (default) or hands-off: the _Autonomy_ switches in the panel.
+
+---
+
 ## Support
 
 `dsh-cli-bridge` is **free to use** and funded by the people it saves money. If

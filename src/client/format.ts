@@ -9,9 +9,11 @@
 import type {
   AccountSnapshot,
   Activity,
+  DecisionRecord,
   DelegationSnapshot,
   RunSnapshot,
   RunUsage,
+  ToolchainStatus,
   WorkspaceState,
 } from '../shared/protocol.ts';
 
@@ -49,21 +51,37 @@ export function describeAccount(account: AccountSnapshot): string {
         ? account.baseUrl ?? 'custom endpoint'
         : `${account.model} @ ${account.baseUrl ?? 'custom endpoint'}`;
       return `endpoint · ${target}${
-        account.credentialConfigured === false ? ' · credential missing' : ''
+        account.credentialConfigured === false ? ' · not configured' : ''
       }`;
     }
     case 'api-key':
       return account.credentialConfigured === false
-        ? 'api key · credential missing'
+        ? 'api key · not configured'
         : 'api key';
     default:
       return 'login';
   }
 }
 
+/** What a toolchain entry's source means, in the user's words. */
+export function toolchainSourceLabel(
+  source: ToolchainStatus['source'],
+): string {
+  switch (source) {
+    case 'missing':
+      return 'not installed';
+    case 'configured':
+      return 'custom';
+    default:
+      return 'installed';
+  }
+}
+
 /** One-line usage summary, or an empty string when the delegate reported none. */
 export function formatUsage(usage: RunUsage | undefined): string {
   if (usage === undefined) return '';
+  // Cost is the number a person reads; tokens are the detail behind it.
+  if (usage.costUsd !== undefined) return `$${usage.costUsd.toFixed(4)}`;
   const parts = [
     usage.inputTokens === undefined
       ? undefined
@@ -74,7 +92,6 @@ export function formatUsage(usage: RunUsage | undefined): string {
     usage.outputTokens === undefined
       ? undefined
       : `${String(usage.outputTokens)} out`,
-    usage.costUsd === undefined ? undefined : `$${usage.costUsd.toFixed(4)}`,
   ].filter((part): part is string => part !== undefined);
   return parts.join(' · ');
 }
@@ -90,7 +107,6 @@ export function describeDelegation(
     `${delegation.cli}/${delegation.account}`,
     delegation.model,
     delegation.effort,
-    delegation.permission,
     rounds <= 1 ? undefined : `${String(rounds)} rounds`,
     formatDuration((delegation.finishedAt ?? now) - delegation.startedAt),
     usage.length === 0 ? undefined : usage,
@@ -160,7 +176,7 @@ export function directionCopy(
 ): { readonly placeholder: string; readonly action: string } {
   return asked
     ? { placeholder: 'your answer', action: 'answer' }
-    : { placeholder: 'steer this delegation', action: 'direct' };
+    : { placeholder: 'steer this task', action: 'steer' };
 }
 
 /** One line describing a decoded delegate action. */
@@ -191,4 +207,43 @@ export function activityTone(activity: Activity): string {
   if (activity.type === 'notice') return activity.level;
   if (activity.type === 'tool') return activity.status;
   return activity.type;
+}
+
+/** The activity kind's label, in the watcher's words rather than the enum's. */
+const ACTIVITY_KIND_LABELS: Readonly<Record<Activity['type'], string>> = {
+  message: 'message',
+  reasoning: 'thinking',
+  tool: 'tool',
+  file: 'file',
+  usage: 'usage',
+  notice: 'notice',
+};
+
+/** A short, human label for one activity kind. */
+export function activityKindLabel(type: Activity['type']): string {
+  return ACTIVITY_KIND_LABELS[type];
+}
+
+/**
+ * One recorded decision, in the watcher's words.
+ *
+ * The stored shape is the machine's (`resume`/`advisor`); what a person needs is
+ * who decided and what happened next.
+ */
+export function describeDecision(decision: DecisionRecord): string {
+  if (decision.kind === 'resume') {
+    switch (decision.source) {
+      case 'human':
+        return 'you answered';
+      case 'direction':
+        return 'you steered it';
+      case 'advisor':
+        return 'DeepSeek continued it';
+      default:
+        return 'it carried on';
+    }
+  }
+  if (decision.kind === 'ask') return 'it asked you a question';
+  if (decision.kind === 'consult') return 'DeepSeek took a look';
+  return 'it finished';
 }

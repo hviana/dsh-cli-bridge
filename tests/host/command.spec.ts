@@ -195,7 +195,7 @@ describe('renderState', () => {
       auth: 'session',
     });
     const text = renderState(await operations.state());
-    expect(text).toContain('Claude Code: path 2.0.0');
+    expect(text).toContain('Claude Code: installed 2.0.0');
     expect(text).toContain('* claude/work — Claude Code login');
     expect(text).toContain('No runs yet.');
     expect(text).toContain('Autonomy: off');

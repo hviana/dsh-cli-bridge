@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activityKindLabel,
   activityTone,
   boundTailChars,
   describeAccount,
   describeActivity,
+  describeDecision,
   describeDelegation,
   describeMerge,
   directionCopy,
@@ -12,12 +14,15 @@ import {
   formatUsage,
   pillLabel,
   runElapsed,
+  toolchainSourceLabel,
 } from '../../src/client/format.ts';
 import type {
   AccountSnapshot,
   Activity,
+  DecisionRecord,
   DelegationSnapshot,
   RunSnapshot,
+  ToolchainStatus,
 } from '../../src/shared/protocol.ts';
 
 describe('boundTailChars', () => {
@@ -74,8 +79,11 @@ describe('formatUsage', () => {
     expect(formatUsage({ inputTokens: 10, outputTokens: 2 })).toBe(
       '10 in · 2 out',
     );
+  });
+
+  it('shows the cost alone when it is known', () => {
     expect(formatUsage({ cachedInputTokens: 5, costUsd: 0.0125 })).toBe(
-      '5 cached · $0.0125',
+      '$0.0125',
     );
   });
 });
@@ -136,9 +144,7 @@ describe('describeDelegation', () => {
   } as const satisfies DelegationSnapshot;
 
   it('reads who ran it and for how long', () => {
-    expect(describeDelegation(base, 9000)).toBe(
-      'claude/work · workspace-write · 4.2s',
-    );
+    expect(describeDelegation(base, 9000)).toBe('claude/work · 4.2s');
   });
 
   it('counts the rounds only when there was more than one', () => {
@@ -236,8 +242,8 @@ describe('directionCopy', () => {
 
   it('offers to steer when nothing was asked', () => {
     expect(directionCopy(false)).toEqual({
-      placeholder: 'steer this delegation',
-      action: 'direct',
+      placeholder: 'steer this task',
+      action: 'steer',
     });
   });
 });
@@ -266,7 +272,7 @@ describe('describeAccount', () => {
         credentialConfigured: false,
       }),
     )
-      .toBe('api key · credential missing');
+      .toBe('api key · not configured');
   });
 
   it('names an endpoint account by its model and base URL', () => {
@@ -298,5 +304,43 @@ describe('activityTone', () => {
     [{ type: 'message', text: 'x' }, 'message'],
   ])('derives a tone for %o', (activity, expected) => {
     expect(activityTone(activity)).toBe(expected);
+  });
+});
+
+describe('activityKindLabel', () => {
+  it.each<[Activity['type'], string]>([
+    ['message', 'message'],
+    ['reasoning', 'thinking'],
+    ['tool', 'tool'],
+    ['file', 'file'],
+    ['usage', 'usage'],
+    ['notice', 'notice'],
+  ])('labels %s', (type, expected) => {
+    expect(activityKindLabel(type)).toBe(expected);
+  });
+});
+
+describe('describeDecision', () => {
+  const base = { round: 1, reason: 'x', at: 0 } as const;
+
+  it.each<[DecisionRecord, string]>([
+    [{ ...base, kind: 'resume', source: 'human' }, 'you answered'],
+    [{ ...base, kind: 'resume', source: 'direction' }, 'you steered it'],
+    [{ ...base, kind: 'resume', source: 'advisor' }, 'DeepSeek continued it'],
+    [{ ...base, kind: 'resume', source: 'policy' }, 'it carried on'],
+    [{ ...base, kind: 'finish', source: 'policy' }, 'it finished'],
+  ])('describes %o', (decision, expected) => {
+    expect(describeDecision(decision)).toBe(expected);
+  });
+});
+
+describe('toolchainSourceLabel', () => {
+  it.each<[ToolchainStatus['source'], string]>([
+    ['managed', 'installed'],
+    ['path', 'installed'],
+    ['configured', 'custom'],
+    ['missing', 'not installed'],
+  ])('labels %s', (source, expected) => {
+    expect(toolchainSourceLabel(source)).toBe(expected);
   });
 });

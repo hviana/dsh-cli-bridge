@@ -23,7 +23,7 @@ import type {
 import { CLI_IDS } from '../shared/protocol.ts';
 import { DelegationView } from './DelegationView.tsx';
 import { RunStream } from './RunStream.tsx';
-import { describeAccount, pillLabel } from './format.ts';
+import { describeAccount, pillLabel, toolchainSourceLabel } from './format.ts';
 import { looseRuns, roundsOf } from './store.ts';
 import type { BridgeStore, RunView } from './store.ts';
 import { cls } from './styles.ts';
@@ -64,7 +64,7 @@ export function createBridgePanel(store: BridgeStore): () => ReactNode {
     return (
       <div className={cls('panel')}>
         <div className={cls('line')}>
-          <strong>Delegate CLIs</strong>
+          <strong>Delegates</strong>
           <button
             type='button'
             className={cls('button')}
@@ -100,8 +100,8 @@ export function createBridgePanel(store: BridgeStore): () => ReactNode {
         <section className={cls('section')}>
           <h4>Autonomy</h4>
           <span className={cls('meta')}>
-            What DeepSeek may decide by itself between rounds. Off means you
-            answer.
+            What DeepSeek may decide by itself while an agent works. Off means
+            you answer.
           </span>
           {AUTONOMY_SWITCHES.map((name) => (
             <AutonomyLine
@@ -114,7 +114,7 @@ export function createBridgePanel(store: BridgeStore): () => ReactNode {
         </section>
 
         <section className={cls('section')}>
-          <h4>Delegations</h4>
+          <h4>Tasks</h4>
           {state.delegations.length === 0 && (
             <span className={cls('meta')}>nothing yet</span>
           )}
@@ -130,7 +130,7 @@ export function createBridgePanel(store: BridgeStore): () => ReactNode {
         </section>
 
         <section className={cls('section')}>
-          <h4>Other runs</h4>
+          <h4>Sign-ins &amp; installs</h4>
           {loose.length === 0 && (
             <span className={cls('meta')}>nothing yet</span>
           )}
@@ -152,9 +152,9 @@ const AUTONOMY_SWITCHES: readonly (keyof AutonomySwitches)[] = [
 
 /** What each switch does, in the user's terms. */
 const AUTONOMY_LABELS: Readonly<Record<keyof AutonomySwitches, string>> = {
-  decide: 'answer the delegate’s questions',
-  continue: 'tell it to carry on with declared next steps',
-  review: 'review the finished work against the task',
+  decide: 'answer its questions',
+  continue: 'keep it going when it says there is more to do',
+  review: 'review the finished work',
 };
 
 /** One automatic decision, and the switch that grants it. */
@@ -205,7 +205,7 @@ function ToolchainLine(
       <span className={cls('label')}>
         {entry.cli}{' '}
         <span className={cls('meta')}>
-          {entry.source}
+          {toolchainSourceLabel(entry.source)}
           {entry.version === undefined ? '' : ` ${entry.version}`}
         </span>
       </span>
@@ -236,9 +236,7 @@ function AccountLine({
     <div className={cls('line')}>
       <span className={cls('label')}>
         {account.isDefault ? '★ ' : ''}
-        {account.cli}
-        /
-        {account.id}{' '}
+        {ambient ? account.cli : `${account.cli}/${account.id}`}{' '}
         <span className={cls('meta')}>
           {ambient ? 'machine default' : describeAccount(account)}
         </span>

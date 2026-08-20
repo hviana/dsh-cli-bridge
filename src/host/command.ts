@@ -17,6 +17,7 @@ import type {
   CliId,
   ControlRequest,
   DelegationId,
+  ToolchainStatus,
 } from '../shared/protocol.ts';
 import { CLI_IDS } from '../shared/protocol.ts';
 import { adapterFor } from '../domain/adapters/index.ts';
@@ -37,7 +38,7 @@ export const CLI_COMMAND_HELP = [
   '/cli                                  show delegates, accounts and recent runs',
   '/cli install <claude|codex>           install or update a delegate CLI',
   '/cli update <claude|codex>            same as install; refreshes to the latest',
-  '/cli login <claude|codex> <account>   sign in interactively (watch it in the panel)',
+  '/cli login <claude|codex> <account>   sign in — a box opens in the panel to type your code',
   '/cli account add <cli> <id> [--api-key [REF]] [--endpoint <url> --token <REF> [--model <id>]] [--label <text>]',
   '/cli account remove <cli> <id>',
   '/cli account default <cli> <id>',
@@ -271,12 +272,26 @@ export function registerCommand(
  * @param state - runs, accounts and toolchain.
  * @returns the text a command surface prints.
  */
+/** What a toolchain entry's source means, in the user's words. */
+function toolchainSourceText(source: ToolchainStatus['source']): string {
+  switch (source) {
+    case 'missing':
+      return 'not installed';
+    case 'configured':
+      return 'custom';
+    default:
+      return 'installed';
+  }
+}
+
 export function renderState(state: BridgeState): string {
   const lines: string[] = ['Delegates'];
   for (const entry of state.toolchain) {
     const version = entry.version === undefined ? '' : ` ${entry.version}`;
     lines.push(
-      `  ${adapterFor(entry.cli).displayName}: ${entry.source}${version}`,
+      `  ${adapterFor(entry.cli).displayName}: ${
+        toolchainSourceText(entry.source)
+      }${version}`,
     );
   }
 
@@ -295,13 +310,13 @@ export function renderState(state: BridgeState): string {
     '',
     `Autonomy: ${
       on.length === 0
-        ? 'off — you answer, and a delegation ends when its delegate does'
+        ? 'off — you answer, and a task ends when the agent says it is done'
         : on.join(', ')
     }`,
   );
 
   if (state.delegations.length > 0) {
-    lines.push('', 'Delegations');
+    lines.push('', 'Tasks');
     for (const delegation of state.delegations) {
       lines.push(
         `  ${delegation.id} [${delegation.status}] ${delegation.account} — ${delegation.label}`,

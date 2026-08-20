@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
+  activityKindLabel,
   activityTone,
   describeActivity,
   formatBytes,
@@ -59,7 +60,9 @@ export function RunStream(
               className={cls('activity')}
               data-tone={activityTone(activity)}
             >
-              <span className={cls('activity-kind')}>{activity.type}</span>
+              <span className={cls('activity-kind')}>
+                {activityKindLabel(activity.type)}
+              </span>
               <span className={cls('activity-text')}>
                 {describeActivity(activity)}
               </span>
@@ -114,7 +117,6 @@ function describeRun(view: RunView): string {
     `${snapshot.cli}/${snapshot.account}`,
     snapshot.model,
     snapshot.effort,
-    snapshot.permission,
     runElapsed(snapshot, Date.now()),
     usage.length === 0 ? undefined : usage,
   ].filter((part): part is string => part !== undefined && part.length > 0)

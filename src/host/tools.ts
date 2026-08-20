@@ -196,22 +196,21 @@ function taskFields(defaultCli: CliId) {
     cli: {
       type: 'string',
       enum: [...CLI_IDS],
-      description: `Which delegate to use. Defaults to ${defaultCli}.`,
+      description:
+        `Which agent to use (claude or codex). Defaults to ${defaultCli}.`,
     },
     account: {
       type: 'string',
-      description:
-        "Account id to run as. Defaults to that delegate's default account.",
+      description: "Account to run as. Defaults to that agent's default.",
     },
     model: {
       type: 'string',
-      description:
-        "Model id or alias for the delegate. Defaults to the delegate's own.",
+      description: "Model to use. Defaults to the agent's own.",
     },
     effort: {
       type: 'string',
       enum: [...EFFORT_LEVELS],
-      description: 'Reasoning effort for the delegate.',
+      description: 'How hard the agent should think.',
     },
   } as const satisfies ParameterSchemaSpec;
 }
@@ -228,11 +227,10 @@ function delegateTool(
   return defineTool({
     name: 'cli_delegate',
     description: [
-      'Delegate a coding task to an external agent CLI (Claude Code or Codex) and wait for it to finish.',
-      "The delegate runs under this session's permission mode, and its whole transcript streams live to the",
-      'user interface — you receive only how it ended, so delegating is cheap for you no matter how much work',
-      'it does. Use it for self-contained work you want another agent to carry out end to end. If it comes back',
-      'with status "needs_direction", answer the question with cli_reply.',
+      'Hand one coding task to Claude Code or Codex and wait for it to finish. The user watches the whole run',
+      'live in the web interface, while you receive only how it ended — so handing off work costs you almost',
+      'nothing. Use it for one self-contained task you want carried out end to end. If it comes back with',
+      'status "needs_direction", answer the question with cli_reply.',
     ].join(' '),
     parameters: taskFields(defaultCli),
     output: {
@@ -272,11 +270,11 @@ function delegateAllTool(
   return defineTool({
     name: 'cli_delegate_all',
     description: [
-      'Delegate several independent tasks at once — optionally to different CLIs and different accounts — and',
-      'wait for all of them. Each task gets its own git worktree and branch, so they cannot overwrite each',
-      "other, and each branch is committed and merged back into the session's branch as it finishes, one at a",
-      'time. Use this when the tasks are genuinely independent; use cli_delegate when the second task depends',
-      'on the first. Any task that could not be merged is reported with its branch, so nothing is lost.',
+      'Hand several independent tasks to Claude Code or Codex at once — optionally different agents and',
+      'accounts — and wait for all of them. Each task runs in its own isolated branch so they cannot overwrite',
+      'each other, and finished work is merged back automatically, one at a time. Use this when the tasks are',
+      'genuinely independent; use cli_delegate when one task depends on another. Anything that could not be',
+      'merged is kept on its branch and reported, so nothing is lost.',
     ].join(' '),
     parameters: {
       tasks: {
@@ -298,7 +296,7 @@ function delegateAllTool(
     presentCall: (args) => ({
       card: 'generic',
       kind: 'execute',
-      title: `${String(args.tasks.length)} delegations in parallel`,
+      title: `${String(args.tasks.length)} tasks in parallel`,
       rawInput: args.tasks.map((task) => oneLineLabel(task.prompt, TITLE_CHARS))
         .join('\n'),
     }),
@@ -323,9 +321,9 @@ function replyTool(operations: BridgeOperations): ToolDefinition {
   return defineTool({
     name: 'cli_reply',
     description: [
-      'Continue a settled delegation: answer the question it came back with, or send it follow-up work.',
-      'The delegate resumes its own session with everything it already did still in context, under the same',
-      'account, model and permission mode. Returns the same shape as cli_delegate.',
+      'Continue a task that stopped to ask a question: answer it, or send follow-up work. The agent picks up',
+      'its own session with everything it already did still in context, under the same account, model and',
+      'settings. Returns the same result as cli_delegate.',
     ].join(' '),
     parameters: {
       delegation: {
@@ -374,10 +372,11 @@ function accountsTool(operations: BridgeOperations): ToolDefinition {
   return defineTool({
     name: 'cli_accounts',
     description: [
-      'List or manage the accounts the delegate CLIs run as. Each account is an isolated CLI home directory,',
-      'so several subscriptions or API keys coexist on one machine. The built-in "ambient" account runs a CLI',
-      'exactly as the user already configured it. Signing in opens an interactive terminal the user completes',
-      'in the interface.',
+      'List or manage the accounts Claude Code and Codex sign in with. Each account is a separate, private',
+      'sign-in, so several subscriptions or API keys coexist on one machine. The built-in "ambient" account',
+      'runs an agent exactly as the user already configured it. Signing in opens a sign-in box in the web',
+      'interface, where the user types their code and presses Enter. Tell the user they can do all of this',
+      'themselves in the panel too — either path works.',
     ].join(' '),
     parameters: {
       op: {
@@ -389,8 +388,7 @@ function accountsTool(operations: BridgeOperations): ToolDefinition {
       cli: {
         type: 'string',
         enum: [...CLI_IDS],
-        description:
-          'Delegate the account belongs to. Required except for list.',
+        description: 'Which agent (claude or codex). Required except for list.',
       },
       id: {
         type: 'string',
@@ -405,12 +403,12 @@ function accountsTool(operations: BridgeOperations): ToolDefinition {
         type: 'string',
         enum: ['session', 'api-key', 'endpoint'],
         description:
-          'How a new account authenticates: its own CLI login, a credential reference, or a custom endpoint.',
+          "How it signs in: the agent's own login, an API key, or a custom endpoint.",
       },
       credential_ref: {
         type: 'string',
         description:
-          'Environment-variable name holding the API key or endpoint token, resolved from the harness credential store.',
+          'Name of the stored secret that holds the API key or token.',
       },
       base_url: {
         type: 'string',
@@ -504,7 +502,7 @@ function accountsTool(operations: BridgeOperations): ToolDefinition {
       }));
       const heading = run === undefined
         ? `${accounts.length} account(s)`
-        : `sign-in started as run ${run}; the user completes it in the interface`;
+        : `sign-in started; finish it in the sign-in box that opened in the web interface (type, then press Enter)`;
       return {
         message: [
           heading,
@@ -526,8 +524,8 @@ function toolchainTool(operations: BridgeOperations): ToolDefinition {
   return defineTool({
     name: 'cli_toolchain',
     description: [
-      'Inspect, install or update the delegate CLIs themselves. A missing CLI is normally installed on first',
-      'use, so this is for checking versions or forcing an update.',
+      'Inspect, install or update Claude Code and Codex themselves. A missing agent is normally installed on',
+      'first use, so this is mainly for checking versions or forcing an update.',
     ].join(' '),
     parameters: {
       op: {

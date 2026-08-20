@@ -432,7 +432,7 @@ describe('cli_delegate_all', () => {
     expect(view).toMatchObject({
       card: 'generic',
       kind: 'execute',
-      title: '2 delegations in parallel',
+      title: '2 tasks in parallel',
     });
   });
 
