@@ -18,6 +18,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -162,7 +163,10 @@ async function git(cwd: string, ...args: string[]): Promise<void> {
 }
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'cli-bridge-e2e-'));
+  // `realpath` canonicalises the temp dir so the test and the delegate child
+  // compare the same path. On macOS `/var` is a symlink to `/private/var`, so
+  // `tmpdir()` and the child's `process.cwd()` would otherwise disagree.
+  root = await realpath(await mkdtemp(join(tmpdir(), 'cli-bridge-e2e-')));
   repository = join(root, 'repo');
   calls = join(root, 'calls.jsonl');
   rounds = join(root, 'rounds.txt');
