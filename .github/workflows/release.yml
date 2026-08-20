@@ -5,23 +5,34 @@ on:
     tags: ['v*']
   workflow_dispatch:
     inputs:
-      dry-run:
-        description: build and verify without publishing
-        type: boolean
-        default: true
+      version:
+        description: version to release, e.g. 0.1.1
+        type: string
+        required: true
 
 permissions:
-  contents: read
-  # Required for npm trusted publishing (OIDC): GitHub mints a short-lived
-  # identity token, and the npm registry exchanges it against the trusted
-  # publisher configured on the package. No NPM_TOKEN is involved.
+  # Trusted publishing (OIDC): GitHub mints a short-lived identity token that
+  # the npm registry exchanges against the trusted publisher on the package.
   id-token: write
+  # The release-dispatch path bumps package.json, commits, and pushes the tag.
+  contents: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: bump version and tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          npm version "${{ inputs.version }}" --no-git-tag-version
+          git add package.json
+          git commit -m "${{ inputs.version }}"
+          git tag -a "v${{ inputs.version }}" -m "v${{ inputs.version }}"
+          git push origin HEAD --follow-tags
 
       - uses: pnpm/action-setup@v4
 
@@ -53,13 +64,8 @@ jobs:
 
       - name: publish
         if: startsWith(github.ref, 'refs/tags/v')
-        # Trusted publishing (OIDC) needs no token: provenance is generated
-        # automatically, and auth comes from the id-token above.
+        # Trusted publishing (OIDC): no token, provenance is automatic.
         run: npm publish --access public
-
-      - name: pack only
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: npm pack
 
       - uses: actions/upload-artifact@v4
         with:
