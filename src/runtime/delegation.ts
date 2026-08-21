@@ -652,10 +652,16 @@ export class Delegation {
   /** Settle the delegation on the last round's facts. */
   private settle(end: RunEnd | undefined, status?: DelegationStatus): void {
     if (this.snapshot.finishedAt !== undefined) return;
+    // A stop that landed before any round could run is a cancellation, not a
+    // failure: reporting "failed: the delegation spent no round" told the
+    // caller to fix a cause that does not exist and call again, when the one
+    // correct response to a cancellation is to stop and not retry.
     const settled = end ?? {
-      status: 'failed' as const,
+      status: status === 'cancelled' ? 'cancelled' : 'failed',
       summary: '',
-      error: 'the delegation spent no round',
+      ...status === 'cancelled'
+        ? {}
+        : { error: 'the delegation spent no round' },
       durationMs: this.deps.now() - this.snapshot.startedAt,
     };
     const { question: _pending, ...rest } = this.snapshot;

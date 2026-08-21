@@ -81,6 +81,16 @@ export class BridgeOperations {
   private batches = 0;
   private delegations = 0;
   /**
+   * How many batches are currently working in each base path.
+   *
+   * Isolation's `auto` mode gives a delegation its own worktree exactly when
+   * it could collide with another, and "another" is not only the tasks of its
+   * own batch: two single-task calls can hold the same base at once, and each
+   * would see nobody else there while the other is mid-edit. Counting them
+   * here is what lets the second one isolate instead of sharing the tree.
+   */
+  private readonly basesInUse = new Map<string, number>();
+  /**
    * What the user has switched on, over the configured defaults.
    *
    * Autonomy is off until a person asks for it, and only a person can ask: this
@@ -160,18 +170,26 @@ export class BridgeOperations {
    */
   async startBatch(request: StartBatchRequest): Promise<BatchEntry[]> {
     this.batches += 1;
-    const batch = new Batch({
-      id: `b${String(this.batches)}` satisfies BatchId,
-      tasks: request.tasks,
-      permission: request.permission,
-      base: request.base,
-      ...request.sessionId === undefined
-        ? {}
-        : { sessionId: request.sessionId },
-      ...request.callId === undefined ? {} : { callId: request.callId },
-      ...request.agent === undefined ? {} : { agent: request.agent },
-    }, this.batchDeps());
-    return this.track(batch.run(request.signal));
+    try {
+      // The claim and its release bracket the whole batch — construction
+      // included — so no path out of here can leave the base counted forever.
+      const baseContended = this.claimBase(request.base);
+      const batch = new Batch({
+        id: `b${String(this.batches)}` satisfies BatchId,
+        tasks: request.tasks,
+        permission: request.permission,
+        base: request.base,
+        baseContended,
+        ...request.sessionId === undefined
+          ? {}
+          : { sessionId: request.sessionId },
+        ...request.callId === undefined ? {} : { callId: request.callId },
+        ...request.agent === undefined ? {} : { agent: request.agent },
+      }, this.batchDeps());
+      return await this.track(batch.run(request.signal));
+    } finally {
+      this.releaseBase(request.base);
+    }
   }
 
   /**
@@ -222,33 +240,40 @@ export class BridgeOperations {
       );
     }
 
-    const batch = new Batch({
-      id: previous.batch,
-      tasks: [{
-        cli: previous.cli,
-        prompt: message,
-        account: previous.account,
-        ...previous.model === undefined ? {} : { model: previous.model },
-        ...previous.effort === undefined ? {} : { effort: previous.effort },
-      }],
-      permission: previous.permission,
-      base: this.baseOf(previous),
-      ...request.sessionId === undefined
-        ? {}
-        : { sessionId: request.sessionId },
-      ...request.callId === undefined ? {} : { callId: request.callId },
-      ...request.agent === undefined ? {} : { agent: request.agent },
-    }, this.batchDeps({ resumeFrom: lastRun, parent: delegation }));
-
-    const [entry] = await this.track(batch.run(request.signal));
-    /* v8 ignore next -- a one-task batch always yields one entry. */
-    if (entry === undefined) {
-      throw new BridgeError(
-        'the continuation produced no delegation',
-        'INVALID_REQUEST',
-      );
+    const base = this.baseOf(previous);
+    try {
+      // Same bracket as startBatch: the claim and its release cover every path.
+      const baseContended = this.claimBase(base);
+      const batch = new Batch({
+        id: previous.batch,
+        tasks: [{
+          cli: previous.cli,
+          prompt: message,
+          account: previous.account,
+          ...previous.model === undefined ? {} : { model: previous.model },
+          ...previous.effort === undefined ? {} : { effort: previous.effort },
+        }],
+        permission: previous.permission,
+        base,
+        baseContended,
+        ...request.sessionId === undefined
+          ? {}
+          : { sessionId: request.sessionId },
+        ...request.callId === undefined ? {} : { callId: request.callId },
+        ...request.agent === undefined ? {} : { agent: request.agent },
+      }, this.batchDeps({ resumeFrom: lastRun, parent: delegation }));
+      const [entry] = await this.track(batch.run(request.signal));
+      /* v8 ignore next -- a one-task batch always yields one entry. */
+      if (entry === undefined) {
+        throw new BridgeError(
+          'the continuation produced no delegation',
+          'INVALID_REQUEST',
+        );
+      }
+      return entry;
+    } finally {
+      this.releaseBase(base);
     }
-    return entry;
   }
 
   /**
@@ -269,6 +294,10 @@ export class BridgeOperations {
     origin: 'user' | 'model' = 'user',
   ): void {
     this.tracking(delegation, sessionId);
+    // A direction on a FINISHED delegation is allowed on purpose: it is a
+    // standing instruction for the work, not for one attempt at it, and the
+    // delegation's continuation inherits it — delivered ones as context,
+    // undelivered ones still pending and still overriding.
     if (text.trim().length === 0) {
       throw new BridgeError(
         'a direction needs something in it',
@@ -282,10 +311,20 @@ export class BridgeOperations {
    * Stop one delegation and every round it would still have spent.
    * @param delegation - the delegation to stop.
    * @param sessionId - the asking session, which must be allowed to see it.
-   * @throws {BridgeError} `UNKNOWN_RUN` when the delegation is not visible here.
+   * @throws {BridgeError} `UNKNOWN_RUN` when the delegation is not visible here,
+   *   `INVALID_REQUEST` when it has already finished.
    */
   cancelDelegation(delegation: DelegationId, sessionId?: string): void {
-    this.tracking(delegation, sessionId).cancel();
+    const tracked = this.tracking(delegation, sessionId);
+    // A stop that silently stops nothing leaves the caller believing a running
+    // task was halted; the refusal names the state it is actually in.
+    if (tracked.delegation.state.finishedAt !== undefined) {
+      throw new BridgeError(
+        `delegation ${delegation} is already finished; there is nothing left to stop`,
+        'INVALID_REQUEST',
+      );
+    }
+    tracked.cancel();
   }
 
   /**
@@ -438,6 +477,27 @@ export class BridgeOperations {
     await Promise.allSettled(this.inFlight);
     await this.merges.drain();
     this.tracked.clear();
+  }
+
+  /**
+   * Count this batch into its base, and say whether something was already there.
+   * @param base - the workspace the batch will work in.
+   * @returns true when at least one other batch was already working there.
+   */
+  private claimBase(base: string): boolean {
+    const count = (this.basesInUse.get(base) ?? 0) + 1;
+    this.basesInUse.set(base, count);
+    return count > 1;
+  }
+
+  /**
+   * Count one finished batch out of its base.
+   * @param base - the workspace the batch worked in.
+   */
+  private releaseBase(base: string): void {
+    const count = this.basesInUse.get(base) ?? 0;
+    if (count <= 1) this.basesInUse.delete(base);
+    else this.basesInUse.set(base, count - 1);
   }
 
   /**

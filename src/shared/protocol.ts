@@ -390,7 +390,11 @@ export interface WorkspaceState {
   readonly merge: MergeState;
   /** Commit the delegation produced, once its work was committed. */
   readonly commit?: string;
-  /** Why a merge conflicted or failed, and what was left behind for the human. */
+  /**
+   * Why a merge conflicted or failed, and what was left behind for the human.
+   * Also carries the reason an INLINE workspace was a fallback rather than the
+   * plan — isolation was wanted and could not be had.
+   */
   readonly detail?: string;
 }
 

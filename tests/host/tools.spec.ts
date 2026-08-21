@@ -3,7 +3,7 @@ import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools';
 import { registerTools } from '../../src/host/tools.ts';
 import type { PermissionMode } from '../../src/shared/protocol.ts';
 import { buildOperations, FakeContext } from '../support/host.ts';
-import type { ProcessScript } from '../support/fakes.ts';
+import { type ProcessScript, until } from '../support/fakes.ts';
 import type { UserQuestionsPort } from '../../src/runtime/inquiry.ts';
 import type { LlmPort } from '../../src/runtime/advisor.ts';
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm';
@@ -876,5 +876,64 @@ describe('cli_toolchain', () => {
       }, execution()),
     )
       .rejects.toMatchObject({ code: 'INSTALL_FAILED' });
+  });
+});
+
+describe('a cancellation that lands while a decision is being made', () => {
+  it('reports the delegation as cancelled, not as its completed last round', async () => {
+    // The last round completed; the stop landed while the continue
+    // consultation was in flight. Reading the ROUND's status reported
+    // "completed" for a task the user cancelled — the one outcome the model
+    // must not act on. The projection reads the delegation's own status.
+    let consulted = false;
+    const llm: LlmPort = {
+      stream() {
+        consulted = true;
+        return {
+          async *[Symbol.asyncIterator]() {
+            // Never produces; the consultation ends when the signal aborts the
+            // read, which is exactly the race the advisor exists to win.
+            await new Promise<void>(() => {});
+            yield {
+              type: 'text-delta',
+              index: 0,
+              text: '',
+            } satisfies StreamChunk;
+          },
+        };
+      },
+    };
+    const control = new AbortController();
+    const { tools, operations } = mount({ llm });
+    operations.setAutonomy('continue', true);
+    const running = tools.registered.get('cli_delegate')!
+      .execute(
+        { prompt: 'x' },
+        execution({
+          session: 'session-a',
+          route: true,
+          signal: control.signal,
+        }),
+      );
+    await until(() => consulted);
+    control.abort();
+    expect(await running).toMatchObject({ status: 'cancelled' });
+  });
+});
+
+describe('a reply to a session with nothing left to continue', () => {
+  it('says what the empty list means instead of denying the session ever delegated', async () => {
+    // An id can be unknown for two reasons — the session never delegated, or
+    // everything it delegated was forgotten by retention — and the message
+    // must cover both: "no task has been delegated yet" told the second
+    // caller something false about its own history.
+    const { tools } = mount();
+    const refusal = await tools.registered.get('cli_reply')!
+      .execute({ delegation: 'd9', message: 'hi' }, execution())
+      .catch((error: unknown) =>
+        String((error as { message?: string }).message)
+      );
+    expect(refusal).toContain('No task is available to continue');
+    expect(refusal).toContain('Start one with cli_delegate');
   });
 });

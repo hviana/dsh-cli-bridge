@@ -600,6 +600,22 @@ describe('cancelling a delegation', () => {
     )
       .resolves.toMatchObject({ ok: false });
   });
+  it('refuses to stop a delegation that already finished', async () => {
+    // A stop that silently stops nothing leaves the caller believing a running
+    // task was halted; the refusal says what state the delegation is actually
+    // in.
+    const { operations } = build();
+    const entry = await delegate(operations);
+    expect(() => operations.cancelDelegation(entry.snapshot.id)).toThrow(
+      /already finished/u,
+    );
+    expect(
+      await operations.control({
+        op: 'delegation.cancel',
+        delegation: entry.snapshot.id,
+      }),
+    ).toMatchObject({ ok: false });
+  });
 });
 
 describe('disposal', () => {
@@ -798,5 +814,44 @@ describe('a switch flipped at runtime', () => {
     expect(asked).toEqual([]);
     expect(entry?.snapshot.status).toBe('needs_direction');
     await operations.dispose();
+  });
+});
+
+describe('isolating across batches', () => {
+  it('gives a second batch its own worktree while another works in the base', async () => {
+    // `auto` isolation is about collisions, and a collision is not only the
+    // tasks of one batch: two single-task calls can hold the same base at
+    // once, each seeing "nobody else here" while the other is mid-edit. The
+    // second one must isolate instead of sharing the tree.
+    const script = (argv: readonly string[]) => {
+      if (argv.includes('--version')) return { stdout: ['1.0.0'] };
+      if (argv.includes('--print')) return { stdout: CLAUDE_DONE };
+      // The git commands isolation runs: argv is [git, '-c', 'core.hooksPath=', ...args].
+      const args = argv.slice(3);
+      const verb = args[0];
+      if (verb === 'rev-parse') {
+        return { stdout: [args[1] === 'HEAD' ? 'abc1234' : 'true'] };
+      }
+      if (verb === 'symbolic-ref') return { stdout: ['main'] };
+      return { stdout: [''] };
+    };
+    const { operations, process } = build({ script });
+    process.resolvable.add('git');
+    const first = operations.startBatch({
+      tasks: [{ cli: 'claude', prompt: 'task a' }],
+      permission: 'workspace-write',
+      base: '/repo',
+      signal: never,
+    });
+    const second = operations.startBatch({
+      tasks: [{ cli: 'claude', prompt: 'task b' }],
+      permission: 'workspace-write',
+      base: '/repo',
+      signal: never,
+    });
+    const [a] = await first;
+    const [b] = await second;
+    expect(a?.snapshot.workspace.mode).toBe('inline');
+    expect(b?.snapshot.workspace.mode).toBe('worktree');
   });
 });

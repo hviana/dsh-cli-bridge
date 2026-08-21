@@ -128,7 +128,32 @@ describe('deciding whether to isolate', () => {
     const git = new FakeGit();
     git.failOn.add('addWorktree');
     const { workspaces } = build({ git, isolation: { mode: 'worktree' } });
-    expect((await workspaces.acquire(request)).state.mode).toBe('inline');
+    const state = (await workspaces.acquire(request)).state;
+    // The fallback used to be silent — the state said "inline, nothing to
+    // report", which reads as the plan rather than the failure it was.
+    expect(state.mode).toBe('inline');
+    expect(state.detail).toContain('a worktree could not be created');
+    expect(state.detail).toContain('addWorktree refused');
+  });
+
+  it('says why a contended base that is not a repository runs inline', async () => {
+    const git = new FakeGit();
+    git.repository = false;
+    const { workspaces } = build({ git, isolation: { mode: 'auto' } });
+    const state = (await workspaces.acquire({ ...request, contended: true }))
+      .state;
+    expect(state.mode).toBe('inline');
+    expect(state.detail).toContain('not a git repository');
+  });
+
+  it('says so when the repository state cannot even be checked', async () => {
+    const git = new FakeGit();
+    git.failOn.add('isRepository');
+    const { workspaces } = build({ git, isolation: { mode: 'auto' } });
+    const state = (await workspaces.acquire({ ...request, contended: true }))
+      .state;
+    expect(state.mode).toBe('inline');
+    expect(state.detail).toContain('could not be checked');
   });
 
   it('branches from a detached head as HEAD', async () => {
@@ -207,6 +232,22 @@ describe('a worktree lease', () => {
     const lease = await workspaces.acquire(isolated);
     await lease.commit('x');
     expect((await lease.merge('x')).merge).toBe('failed');
+  });
+
+  it('keeps the work and reports when the merge could not even be attempted', async () => {
+    // A merge that throws — git vanished mid-session, say — used to reject
+    // the whole batch, discarding the settled delegation result the caller
+    // was owed. The work is still on its branch; the state says so.
+    const git = new FakeGit();
+    git.failOn.add('merge');
+    const { workspaces } = build({ git });
+    const lease = await workspaces.acquire(isolated);
+    await lease.commit('x');
+    const state = await lease.merge('x');
+    expect(state).toMatchObject({ merge: 'failed' });
+    expect(state.detail).toContain('merge refused');
+    await lease.release();
+    expect(git.calls).not.toContain('removeWorktree');
   });
 
   it('refuses to merge into a branch that is no longer checked out', async () => {

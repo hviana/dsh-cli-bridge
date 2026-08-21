@@ -617,9 +617,24 @@ export class RunRegistry {
     return record;
   }
 
-  /** Whether a session may see a run: its own runs, and unowned ones. */
+  /**
+   * Whether a run is reachable from here.
+   *
+   * A SESSION reaches its own runs and the unowned ones. NO session id is the
+   * human channel — the browser panel and the control route behind it — and it
+   * reaches everything, the same rule {@link listAll} already follows for
+   * listings. Fencing the human's reads by session is what left the panel
+   * unable to stop a run the model had started, or to type into a sign-in
+   * opened from `/cli`, while the very frames the panel rendered proved the
+   * runs existed. The model-facing surfaces always pass a session id, so they
+   * keep the fence.
+   * @param snapshot - the run being reached for.
+   * @param sessionId - the asking session; omit for the human channel.
+   * @returns true when the run may be reached from here.
+   */
   private visible(snapshot: RunSnapshot, sessionId?: string): boolean {
-    return snapshot.sessionId === undefined || snapshot.sessionId === sessionId;
+    return sessionId === undefined || snapshot.sessionId === undefined ||
+      snapshot.sessionId === sessionId;
   }
 
   /**

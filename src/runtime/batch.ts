@@ -47,6 +47,14 @@ export interface BatchRequest {
   readonly sessionId?: string;
   readonly callId?: string;
   readonly agent?: Agent;
+  /**
+   * Whether another batch is already working in the base right now.
+   *
+   * Carried rather than computed: this batch is not the only thing that could
+   * be there — two single-task batches from two calls can hold the same base
+   * at once — and the owner above is the one that can see them all.
+   */
+  readonly baseContended?: boolean;
 }
 
 /** Everything a batch drives. */
@@ -102,7 +110,8 @@ export class Batch {
    * @returns one entry per task, in the order they were asked for.
    */
   async run(signal: AbortSignal): Promise<BatchEntry[]> {
-    const contended = this.request.tasks.length > 1;
+    const contended = this.request.tasks.length > 1 ||
+      this.request.baseContended === true;
     const delegations = await Promise.all(
       this.request.tasks.map(async (task) => this.prepare(task, contended)),
     );

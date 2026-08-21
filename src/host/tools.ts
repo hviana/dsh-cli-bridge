@@ -915,11 +915,21 @@ function project(
   const end = snapshot.end;
   const { mode, path, branch, merge, detail } = snapshot.workspace;
   const autonomy = snapshot.autonomy;
+  // The DELEGATION's own terminal status is the fact the caller acts on, not
+  // the last round's. A stop can settle a delegation whose last round
+  // completed — cancelled while the next decision was being made — and
+  // reading the round's status then reported "completed" for a task the user
+  // cancelled, which invites exactly the wrong move: reporting the work done
+  // instead of stopping.
+  const status = snapshot.status === 'running' ||
+      snapshot.status === 'awaiting-human'
+    ? end?.status ?? 'cancelled'
+    : snapshot.status;
   return {
     delegation: snapshot.id,
     cli: snapshot.cli,
     account: snapshot.account,
-    status: end?.status ?? 'cancelled',
+    status,
     summary: end?.summary ?? '',
     rounds: snapshot.rounds.length,
     diagnostics: [
@@ -1119,8 +1129,14 @@ function renderBatch(value: BatchResult): string {
 function describeWorkspace(
   workspace: DelegationResult['workspace'],
 ): string | undefined {
-  if (workspace === undefined || workspace.mode !== 'worktree') {
-    return undefined;
+  if (workspace === undefined) return undefined;
+  if (workspace.mode !== 'worktree') {
+    // An inline workspace normally has nothing to say — the work happened
+    // where the caller lives. The one case worth a line is an inline fallback
+    // with a reason: isolation was wanted, and not had.
+    return workspace.detail === undefined
+      ? undefined
+      : `Its work happened in the session workspace — ${workspace.detail}.`;
   }
   const branch = workspace.branch ?? 'its branch';
   const detail = workspace.detail === undefined ? '' : ` — ${workspace.detail}`;
@@ -1246,7 +1262,11 @@ function knownDelegations(
 ): string {
   const live = operations.listDelegations(sessionId);
   if (live.length === 0) {
-    return 'No task has been delegated in this session yet — start one with cli_delegate.';
+    // Two causes share this state — the session never delegated anything, or
+    // every delegation it did delegate was forgotten by retention — and "no
+    // task has been delegated yet" told the latter caller something false
+    // about its own history. The remedy is the same either way: start again.
+    return 'No task is available to continue in this session right now — finished ones are forgotten once enough newer work has run. Start one with cli_delegate.';
   }
   return `Tasks you can continue: ${
     live.map((snapshot) => `${snapshot.id} (${snapshot.status})`).join(', ')

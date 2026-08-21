@@ -410,14 +410,19 @@ export function renderState(state: BridgeState): string {
       for (const note of delegation.notes) {
         if (note.level !== 'info') lines.push(`      ⚠ ${note.text}`);
       }
-      if (delegation.workspace.mode === 'worktree') {
+      if (
+        delegation.workspace.mode === 'worktree' ||
+        delegation.workspace.detail !== undefined
+      ) {
         const detail = delegation.workspace.detail === undefined
           ? ''
           : ` — ${delegation.workspace.detail}`;
         lines.push(
-          `      ${
-            delegation.workspace.branch ?? 'worktree'
-          }: ${delegation.workspace.merge}${detail}`,
+          delegation.workspace.mode === 'worktree'
+            ? `      ${
+              delegation.workspace.branch ?? 'worktree'
+            }: ${delegation.workspace.merge}${detail}`
+            : `      session workspace${detail}`,
         );
       }
     }

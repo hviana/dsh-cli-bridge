@@ -592,6 +592,21 @@ describe('session fencing', () => {
       started.snapshot.id,
     ]);
   });
+
+  it('lets the unscoped human channel reach a run any session started', async () => {
+    // No session id is the browser panel, and it must be able to stop what it
+    // renders. Fencing this read by session is what left the panel unable to
+    // cancel a run the model had started — the frames proved it existed while
+    // the stop button was refused as "no run named".
+    const { runs } = build({
+      script: (argv) =>
+        argv.includes('--print') ? { hold: true } : { stdout: ['1.0.0'] },
+    });
+    const started = await runs.start({ ...task, sessionId: 'session-a' });
+    expect(() => runs.get(started.snapshot.id)).not.toThrow();
+    expect(runs.cancel(started.snapshot.id)).toBe('requested');
+    expect((await started.settled).status).toBe('cancelled');
+  });
 });
 
 describe('retention', () => {

@@ -957,3 +957,72 @@ describe('a direction that lands while the review gathers evidence', () => {
     });
   });
 });
+
+describe('a cancellation that lands before any round', () => {
+  it('settles as cancelled, not as a failure with nothing to fix', async () => {
+    // A stop that won the race against the first round used to settle with
+    // "failed: the delegation spent no round" — an error that names a cause
+    // which does not exist and invites a retry, when the one correct response
+    // to a cancellation is to stop.
+    const control = new AbortController();
+    control.abort();
+    const { delegation } = buildDelegation();
+    const settled = await delegation.run(control.signal);
+    expect(settled.status).toBe('cancelled');
+    expect(settled.end).toMatchObject({ status: 'cancelled' });
+    expect(settled.end?.error).toBeUndefined();
+  });
+});
+
+describe('a cancellation between rounds', () => {
+  it('keeps the round as it was and cancels the delegation', async () => {
+    // The delegation's terminal state and the last round's own outcome are two
+    // facts: a stop can land after a round completed, while its next decision
+    // was still being made. The round completed; the delegation was cancelled.
+    // The model-facing projection reads the DELEGATION's status, so both must
+    // stay truthful here.
+    let consults = 0;
+    const advisor: AdvisorPort = {
+      async consult(_request, _target, signal) {
+        consults += 1;
+        // The first consultation answers "not finished" so a second round
+        // runs; the second one holds until the caller gives up.
+        if (consults === 1) {
+          return { text: '{"finished":false,"instruction":"finish it"}' };
+        }
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted === true) resolve();
+          else {signal?.addEventListener('abort', () => resolve(), {
+              once: true,
+            });}
+        });
+        return { text: '' };
+      },
+    };
+    const control = new AbortController();
+    const { delegation } = buildDelegation({
+      script: rounds('First part done.', 'All done.'),
+      advisor,
+      agentRoute: ROUTE,
+      config: { autonomy: { continue: true } },
+    });
+    const running = delegation.run(control.signal);
+    await until(() => consults === 2);
+    control.abort();
+    const settled = await running;
+
+    expect(settled.status).toBe('cancelled');
+    expect(settled.end?.status).toBe('completed');
+    expect(settled.end?.summary).toBe('All done.');
+    // The round-1 continuation was decided BEFORE the stop, so it stays on the
+    // record; what must not appear is a round-2 verdict nobody ever gave.
+    expect(settled.decisions).toEqual([{
+      round: 1,
+      source: 'advisor',
+      kind: 'resume',
+      reason: 'the session model found declared work remaining',
+      message: expect.any(String),
+      at: expect.any(Number),
+    }]);
+  });
+});

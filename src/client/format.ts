@@ -160,7 +160,13 @@ export function describeDelegation(
  * @returns one line, or `undefined` when there is nothing to report.
  */
 export function describeMerge(workspace: WorkspaceState): string | undefined {
-  if (workspace.mode !== 'worktree') return undefined;
+  if (workspace.mode !== 'worktree') {
+    // Inline is the ordinary case and says nothing; the one worth a line is an
+    // inline fallback, where the reason is the whole story.
+    return workspace.detail === undefined
+      ? undefined
+      : `in the session workspace — ${workspace.detail}`;
+  }
   const branch = workspace.branch ?? 'its branch';
   const detail = workspace.detail === undefined ? '' : ` — ${workspace.detail}`;
   switch (workspace.merge) {

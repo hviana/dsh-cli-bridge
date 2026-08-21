@@ -17,7 +17,7 @@ import type { DelegationId, WorkspaceState } from '../shared/protocol.ts';
 import type { Evidence } from '../domain/advice.ts';
 import { boundTail } from '../domain/text.ts';
 import type { IsolationConfig } from '../config.ts';
-import type { GitPort } from './git.ts';
+import type { GitPort, MergeOutcome } from './git.ts';
 import type { BridgePaths } from './paths.ts';
 import type { FilePort } from './ports.ts';
 
@@ -82,10 +82,22 @@ export class Workspaces {
   async acquire(request: WorkspaceRequest): Promise<WorkspaceLease> {
     const wanted = this.config.mode === 'worktree' ||
       (this.config.mode === 'auto' && request.contended);
-    if (
-      !wanted || !await this.git.isRepository(request.base).catch(() => false)
-    ) {
-      return inlineLease(request.base);
+    if (!wanted) return inlineLease(request.base);
+    // Isolation was wanted but needs a repository to cut a worktree from. A
+    // base that has none — or one whose state could not be read — runs the
+    // delegation inline, and the state says why: two contended delegations
+    // sharing one tree with no record of it is exactly the collision that
+    // isolation exists to prevent.
+    const repository = await this.git.isRepository(request.base).catch(() =>
+      undefined
+    );
+    if (repository !== true) {
+      return inlineLease(
+        request.base,
+        repository === false
+          ? 'the base is not a git repository, so there was nothing to isolate in'
+          : 'the repository could not be checked, so the work ran in the session workspace',
+      );
     }
 
     const branch = `${this.config.branchPrefix}${request.delegation}`;
@@ -94,11 +106,17 @@ export class Workspaces {
     try {
       await this.files.makeDirectory(this.paths.worktrees);
       await this.git.addWorktree(request.base, path, branch, baseRef);
-    } catch {
+    } catch (error) {
       // A repository that will not give us a worktree — a stale registration, a
       // branch that exists — is not a reason to refuse the work. Fall back to
-      // the session workspace and say so in the state.
-      return inlineLease(request.base);
+      // the session workspace and SAY SO in the state: running the delegation
+      // inline without a word is exactly the silent collision isolation exists
+      // to prevent, and the record must show that isolation was wanted and
+      // not had.
+      return inlineLease(
+        request.base,
+        `a worktree could not be created (${describe(error)})`,
+      );
     }
 
     return new WorktreeLease(
@@ -117,9 +135,19 @@ export class Workspaces {
   }
 }
 
-/** The session workspace: nothing to isolate, nothing to merge. */
-function inlineLease(path: string): WorkspaceLease {
-  const state: WorkspaceState = { mode: 'inline', path, merge: 'not-required' };
+/**
+ * The session workspace: nothing to isolate, nothing to merge.
+ * @param path - the working directory.
+ * @param detail - why the delegation is inline when isolation was wanted;
+ *   absent for the ordinary case, where inline is simply the decision.
+ */
+function inlineLease(path: string, detail?: string): WorkspaceLease {
+  const state: WorkspaceState = {
+    mode: 'inline',
+    path,
+    merge: 'not-required',
+    ...detail === undefined ? {} : { detail },
+  };
   return {
     state,
     async commit() {
@@ -204,11 +232,21 @@ class WorktreeLease implements WorkspaceLease {
       );
     }
 
-    const outcome = await this.git.merge(
-      this.repository,
-      branch,
-      `Merge ${branch}: ${label}`,
-    );
+    let outcome: MergeOutcome;
+    try {
+      outcome = await this.git.merge(
+        this.repository,
+        branch,
+        `Merge ${branch}: ${label}`,
+      );
+    } catch (error) {
+      // A merge that could not even be attempted — git vanished mid-session,
+      // say — must not take the delegation's result down with it. The queue
+      // above has already recorded the failure as terminal, and the caller
+      // still needs to read what the delegate did. The work is on its branch,
+      // and the state says why it is still there.
+      return this.hold('failed', describe(error));
+    }
     if (outcome.ok) {
       this.current = {
         ...this.current,
