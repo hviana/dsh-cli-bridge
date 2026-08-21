@@ -24,6 +24,22 @@ export interface AdviceTarget {
   readonly model: string;
 }
 
+/** What one consultation produced, and how the model stopped producing it. */
+export interface AdviceReply {
+  /** The prose the model concluded with; empty when it never got that far. */
+  readonly text: string;
+  /**
+   * Why generation stopped, when the adapter reported it.
+   *
+   * Kept because an EMPTY answer is otherwise unexplainable, and the two causes
+   * call for opposite responses from whoever reads it: `max-tokens` means the
+   * budget was spent — on a reasoning model, usually spent thinking — and wants
+   * a bigger `autonomy.advisor.maxTokens`, while `stop` means the model genuinely
+   * had nothing to say.
+   */
+  readonly finish?: string;
+}
+
 /** One decision, asked and answered. */
 export interface AdvisorPort {
   /**
@@ -31,13 +47,13 @@ export interface AdvisorPort {
    * @param request - the prepared prompt.
    * @param target - the route and model to ask.
    * @param signal - cancellation, including a user direction arriving.
-   * @returns the model's reply text.
+   * @returns the model's reply, and how it stopped.
    */
   consult(
     request: AdviceRequest,
     target: AdviceTarget,
     signal?: AbortSignal,
-  ): Promise<string>;
+  ): Promise<AdviceReply>;
 }
 
 /** The slice of `ctx.llm` a consultation uses. */
@@ -57,18 +73,28 @@ export function modelAdvisor(llm: LlmPort, config: AdvisorConfig): AdvisorPort {
       request: AdviceRequest,
       target: AdviceTarget,
       signal?: AbortSignal,
-    ): Promise<string> {
+    ): Promise<AdviceReply> {
       // A decision that was already overtaken — by a user direction, or by the
       // caller giving up — is not worth a model request at all, and an adapter
       // handed a pre-aborted signal has no event left to react to.
-      if (signal?.aborted === true) return '';
+      if (signal?.aborted === true) return { text: '' };
       const control = new AbortController();
       const abort = (): void => {
         control.abort();
       };
       signal?.addEventListener('abort', abort, { once: true });
-      const deadline = setTimeout(abort, config.timeoutMs);
-      deadline.unref?.();
+
+      // The bound is on SILENCE, not on duration: every chunk pushes the
+      // deadline out, so a consultation that has to read the project before it
+      // can answer is never cut off for taking the time that took — while one
+      // that hangs still releases the delegation.
+      let idle = setTimeout(abort, config.timeoutMs);
+      idle.unref?.();
+      const progressed = (): void => {
+        clearTimeout(idle);
+        idle = setTimeout(abort, config.timeoutMs);
+        idle.unref?.();
+      };
 
       try {
         const stream = llm.stream({
@@ -76,19 +102,21 @@ export function modelAdvisor(llm: LlmPort, config: AdvisorConfig): AdvisorPort {
           model: target.model,
           system: request.system,
           messages: [oneShot(request.prompt)],
-          maxTokens: config.maxTokens,
+          // Absent unless a deployment asked for a ceiling: the model uses what
+          // its provider allows, because a decision is not always a sentence and
+          // this plugin cannot know how much thought the question deserves.
+          ...config.maxTokens === undefined
+            ? {}
+            : { maxTokens: config.maxTokens },
           signal: control.signal,
         });
         // Only prose is an answer: reasoning deltas are the model thinking, and
-        // a decision is what it concluded.
-        const parts = await drain(
-          stream,
-          control.signal,
-          (chunk) => (chunk.type === 'text-delta' ? chunk.text : ''),
-        );
-        return parts;
+        // a decision is what it concluded. The finish reason is kept anyway, so
+        // an answer that never arrived can say why instead of reading as
+        // indifference.
+        return await drain(stream, control.signal, progressed);
       } finally {
-        clearTimeout(deadline);
+        clearTimeout(idle);
         signal?.removeEventListener('abort', abort);
       }
     },
@@ -104,16 +132,17 @@ export function modelAdvisor(llm: LlmPort, config: AdvisorConfig): AdvisorPort {
  * held decision holds the delegation, and the tool call with it.
  * @param stream - the adapter's chunks.
  * @param signal - the deadline and cancellation.
- * @param select - projects each chunk to the text it contributes.
- * @returns everything selected before the stream ended or the signal fired.
+ * @param onChunk - called per chunk, so the caller can reset its idle bound.
+ * @returns the prose it concluded with, and how it stopped.
  */
 async function drain(
   stream: AsyncIterable<StreamChunk>,
   signal: AbortSignal,
-  select: (chunk: StreamChunk) => string,
-): Promise<string> {
+  onChunk: () => void,
+): Promise<AdviceReply> {
   const iterator = stream[Symbol.asyncIterator]();
   const parts: string[] = [];
+  let finish: string | undefined;
   try {
     // A stream is read one chunk at a time by definition.
     /* oxlint-disable eslint/no-await-in-loop */
@@ -123,7 +152,10 @@ async function drain(
         aborted(signal).then(() => 'stop' as const),
       ]);
       if (next === 'stop' || next.done === true) break;
-      parts.push(select(next.value));
+      onChunk();
+      const chunk = next.value;
+      if (chunk.type === 'text-delta') parts.push(chunk.text);
+      if (chunk.type === 'finish') finish = chunk.reason.kind;
     }
     /* oxlint-enable eslint/no-await-in-loop */
   } finally {
@@ -131,7 +163,10 @@ async function drain(
     // is already detached from this decision.
     void iterator.return?.(undefined);
   }
-  return parts.join('');
+  return {
+    text: parts.join(''),
+    ...finish === undefined ? {} : { finish },
+  };
 }
 
 /** Resolves when a signal fires. */
@@ -165,11 +200,21 @@ function oneShot(prompt: string): Message {
 /**
  * Resolve which route and model a delegation's decisions run on.
  *
- * The default is the calling session's own route — the model that delegated the
- * work is the one that arbitrates it — and configuration overrides either half
- * for a deployment that wants a cheaper or stricter arbiter.
+ * Three sources, each half resolved independently, best-first:
+ *
+ * 1. CONFIGURATION, for a deployment that wants a cheaper or stricter arbiter;
+ * 2. the calling session's own route — the model that delegated the work is the
+ *    one that arbitrates it;
+ * 3. the composition's DEFAULT route.
+ *
+ * The third source is not a nicety. An agent created without an explicit model
+ * carries empty options, which is the ordinary case, so the first two sources
+ * are both blank in a standard deployment — and a target that cannot be named is
+ * a target that cannot be consulted, which silently turned every autonomy switch
+ * into a no-op that still asked the human.
  * @param config - the advisor configuration.
  * @param session - the calling agent's own route and model, when it has one.
+ * @param fallback - the composition's default route, when it has one.
  * @returns the target, or `undefined` when no route can be determined.
  */
 export function adviceTarget(
@@ -177,13 +222,33 @@ export function adviceTarget(
   session:
     | { provider?: string | undefined; model?: string | undefined }
     | undefined,
+  fallback?:
+    | {
+      readonly provider?: string | undefined;
+      readonly model?: string | undefined;
+    }
+    | undefined,
 ): AdviceTarget | undefined {
-  const provider = config.provider.length > 0
-    ? config.provider
-    : session?.provider;
-  const model = config.model.length > 0 ? config.model : session?.model;
-  return provider === undefined || model === undefined ||
-      provider.length === 0 || model.length === 0
+  const provider = firstNamed(
+    config.provider,
+    session?.provider,
+    fallback?.provider,
+  );
+  const model = firstNamed(config.model, session?.model, fallback?.model);
+  return provider === undefined || model === undefined
     ? undefined
     : { provider, model };
+}
+
+/**
+ * The first candidate that actually names something.
+ * @param candidates - the sources, best-first.
+ * @returns the first non-empty value, or `undefined` when none names anything.
+ */
+function firstNamed(
+  ...candidates: readonly (string | undefined)[]
+): string | undefined {
+  return candidates.find((candidate): candidate is string =>
+    candidate !== undefined && candidate.length > 0
+  );
 }

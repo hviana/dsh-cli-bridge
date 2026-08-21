@@ -88,23 +88,48 @@ export function statusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status.replace(/[-_]/gu, ' ');
 }
 
-/** One-line usage summary, or an empty string when the delegate reported none. */
+/**
+ * Abbreviate a token count so it stays short at any magnitude.
+ *
+ * A usage line sits in a header that already competes for width, and the exact
+ * digit of a 58626-token count is not what a person is reading — the order of
+ * magnitude is. Counts below a thousand keep every digit, because there the
+ * digits ARE the information.
+ * @param tokens - the count.
+ * @returns the abbreviated count.
+ */
+export function formatTokens(tokens: number): string {
+  if (tokens < 1000) return String(tokens);
+  if (tokens < 1_000_000) return `${(tokens / 1000).toFixed(1)}k`;
+  return `${(tokens / 1_000_000).toFixed(1)}M`;
+}
+
+/**
+ * One compact usage summary: what it spent, and what it cost.
+ *
+ * BOTH halves, always — the tokens and the price. They used to be mutually
+ * exclusive: a cost, when the delegate reported one, returned early and hid
+ * every token count. So the two delegates never showed the same facts — Claude
+ * Code showed a price with no tokens, Codex tokens with no price — and the
+ * cached count, which is exactly where the money is saved, was invisible on the
+ * side that bills. A delegate that reports no cost simply contributes no price.
+ * @param usage - the counters, when the delegate reported any.
+ * @returns the summary, or an empty string when there is nothing to report.
+ */
 export function formatUsage(usage: RunUsage | undefined): string {
   if (usage === undefined) return '';
-  // Cost is the number a person reads; tokens are the detail behind it.
-  if (usage.costUsd !== undefined) return `$${usage.costUsd.toFixed(4)}`;
-  const parts = [
+  return [
     usage.inputTokens === undefined
       ? undefined
-      : `${String(usage.inputTokens)} in`,
+      : `${formatTokens(usage.inputTokens)} in`,
     usage.cachedInputTokens === undefined
       ? undefined
-      : `${String(usage.cachedInputTokens)} cached`,
+      : `${formatTokens(usage.cachedInputTokens)} cached`,
     usage.outputTokens === undefined
       ? undefined
-      : `${String(usage.outputTokens)} out`,
-  ].filter((part): part is string => part !== undefined);
-  return parts.join(' · ');
+      : `${formatTokens(usage.outputTokens)} out`,
+    usage.costUsd === undefined ? undefined : `$${usage.costUsd.toFixed(4)}`,
+  ].filter((part): part is string => part !== undefined).join(' · ');
 }
 
 /** The metadata line for one delegation: who ran it, for how long, at what cost. */
@@ -338,6 +363,80 @@ const ACTIVITY_KIND_LABELS: Readonly<Record<Activity['type'], string>> = {
 /** A short, human label for one activity kind. */
 export function activityKindLabel(type: Activity['type']): string {
   return ACTIVITY_KIND_LABELS[type];
+}
+
+/**
+ * What to say about a tool call's outcome — and when to say nothing.
+ *
+ * Success is the ordinary case, and stating it next to a command whose output is
+ * already on screen is ceremony: the row said `completed` while the result sat
+ * right underneath it. So a call that simply worked contributes no words, and
+ * the vocabulary is reserved for the two states a person must not miss: still
+ * running, and did not work.
+ * @param activity - the folded tool activity.
+ * @returns the outcome text, or `undefined` when there is nothing worth saying.
+ */
+export function toolOutcome(
+  activity: Activity & { readonly type: 'tool' },
+): string | undefined {
+  if (activity.status === 'started') return 'running';
+  const failed = activity.status === 'failed' ||
+    (activity.exitCode !== undefined && activity.exitCode !== 0);
+  if (!failed) return undefined;
+  return activity.exitCode === undefined
+    ? 'failed'
+    : `exit ${String(activity.exitCode)}`;
+}
+
+/** Shells a delegate wraps a command in before running it. */
+const SHELL_WRAPPER =
+  /^(?:\/(?:usr\/)?bin\/)?(?:ba|z|da|k)?sh\s+-[lic]{1,3}\s+(?<quote>['"])(?<command>[\s\S]*)\k<quote>$/u;
+
+/**
+ * The command a person meant to read.
+ *
+ * Codex reports what it literally executed — `/bin/bash -lc "…"` — and that
+ * wrapper is the same eleven characters on every row, pushing the part that
+ * differs toward the edge. The wrapper is peeled off for DISPLAY only; the
+ * literal invocation stays in the raw log, so nothing is hidden from someone
+ * debugging what actually ran.
+ * @param detail - the reported command.
+ * @returns the command without its shell wrapper.
+ */
+export function displayCommand(detail: string): string {
+  const inner = SHELL_WRAPPER.exec(detail.trim())?.groups?.command;
+  return inner === undefined || inner.trim().length === 0 ? detail : inner;
+}
+
+/**
+ * Whether an activity kind earns a label in the margin.
+ *
+ * Prose does not: a paragraph is self-evidently a paragraph, and the word
+ * `message` beside every one of them is a column of noise. The kinds that keep
+ * a label are the ones where it explains something the text alone does not —
+ * that this was internal reasoning, a file change, or a notice.
+ * @param type - the activity kind.
+ * @returns true when the label carries information.
+ */
+export function showsKindLabel(type: Activity['type']): boolean {
+  return type !== 'message';
+}
+
+/**
+ * The decisions worth showing a person.
+ *
+ * Every round records how it continued, including the one that just stopped
+ * because the work was done. Rendering that reads as `round 1 · it finished`
+ * under a card whose badge already says `completed` — the same fact, a third
+ * time. What earns a line is a decision someone would want to audit: a human
+ * answering or steering, or DeepSeek deciding on its own.
+ * @param decisions - every recorded decision.
+ * @returns those that say something the card does not already.
+ */
+export function interestingDecisions(
+  decisions: readonly DecisionRecord[],
+): readonly DecisionRecord[] {
+  return decisions.filter((decision) => decision.kind !== 'finish');
 }
 
 /**

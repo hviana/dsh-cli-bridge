@@ -86,6 +86,7 @@ export function nodePorts(ctx: Context): RuntimePorts {
   const credentials = ctx.get('credentials');
   const llm = ctx.get('llm');
   const questions = userQuestionsOf(ctx);
+  const defaultRoute = defaultRouteOf(ctx);
   return {
     process: ctx.subprocess,
     files: nodeFiles,
@@ -94,6 +95,7 @@ export function nodePorts(ctx: Context): RuntimePorts {
     nodePath: process.execPath,
     ...llm === undefined ? {} : { llm },
     ...questions === undefined ? {} : { questions },
+    ...defaultRoute === undefined ? {} : { defaultRoute },
     ...credentials === undefined ? {} : {
       credentials: {
         async resolve(ref: string): Promise<string | undefined> {
@@ -125,6 +127,38 @@ function userQuestionsOf(ctx: Context): UserQuestionsPort | undefined {
   return (ctx as unknown as {
     get(name: string): UserQuestionsPort | undefined;
   }).get('userQuestions');
+}
+
+/**
+ * The harness's default-model service, when this composition mounts it.
+ *
+ * Same treatment as the user-questions seam: resolved through `get` and called
+ * structurally, so the plugin does not depend on a package it cannot install.
+ * The returned function is called per decision rather than once, because the
+ * service reads its settings layer live and the default may be changed while
+ * delegations are running.
+ * @param ctx - the host plugin context.
+ * @returns a reader for the default route, or `undefined` when none is mounted.
+ */
+function defaultRouteOf(
+  ctx: Context,
+): (() => { provider?: string; model?: string } | undefined) | undefined {
+  const service = (ctx as unknown as {
+    get(name: string): {
+      currentSelection?: () => { provider?: string; model?: string };
+    } | undefined;
+  }).get('agentDefaultModel');
+  if (service?.currentSelection === undefined) return undefined;
+  const read = service.currentSelection.bind(service);
+  return () => {
+    try {
+      return read();
+    } catch {
+      // A default nobody can read is the same as no default: autonomy declines
+      // rather than taking the whole delegation down with it.
+      return undefined;
+    }
+  };
 }
 
 /** Whether a filesystem error means "there is nothing there". */

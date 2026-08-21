@@ -8,6 +8,10 @@
  * look like two calls, and the raw transcript stays one click away for when
  * something goes wrong inside a delegate.
  *
+ * A run rendered INSIDE a delegation states nothing the delegation's own header
+ * already states. One round therefore carries no header at all, and several
+ * carry only what tells them apart — which round, how it went, what it spent.
+ *
  * @module dsh-cli-bridge/client/RunStream
  */
 import { useEffect, useRef, useState } from 'react';
@@ -17,14 +21,25 @@ import {
   activityKindLabel,
   activityTone,
   describeActivity,
+  displayCommand,
   foldTranscript,
   formatBytes,
   formatUsage,
   runElapsed,
+  showsKindLabel,
   statusLabel,
+  toolOutcome,
 } from './format.ts';
 import { cls } from './styles.ts';
 import type { RunView } from './store.ts';
+
+/** Where this run sits inside its delegation. */
+export interface RoundPosition {
+  /** 0-based position among the delegation's rounds. */
+  readonly index: number;
+  /** How many rounds the delegation has so far. */
+  readonly total: number;
+}
 
 /** What {@link RunStream} needs. */
 export interface RunStreamProps {
@@ -33,13 +48,20 @@ export interface RunStreamProps {
   readonly visibleActivities?: number;
   /** Workspace root, so file paths read relative to it. */
   readonly root?: string;
+  /**
+   * Position within a delegation, when one is rendering this run.
+   *
+   * Supplying it is what suppresses the duplicated header: the delegation has
+   * already named the task, the delegate, the account and the cost.
+   */
+  readonly round?: RoundPosition;
   /** Extra controls rendered in the header, such as a cancel button. */
   readonly actions?: ReactNode;
 }
 
 /** One run's header, transcript, question, and raw log. */
 export function RunStream(
-  { view, visibleActivities = 40, root, actions }: RunStreamProps,
+  { view, visibleActivities = 40, root, round, actions }: RunStreamProps,
 ): ReactNode {
   const [showLog, setShowLog] = useState(false);
   const status = view.end?.status ?? view.snapshot?.status ?? 'starting';
@@ -47,17 +69,39 @@ export function RunStream(
   // number of events the delegate happened to emit for them.
   const rows = foldTranscript(view.activities);
   const visible = rows.slice(Math.max(0, rows.length - visibleActivities));
+  // A lone round inside a delegation is fully described by that delegation.
+  const header = round === undefined
+    ? 'full'
+    : round.total > 1
+    ? 'round'
+    : 'none';
 
   return (
     <div className={cls('row')}>
-      <div className={cls('head')}>
-        <span className={cls('title')}>{view.snapshot?.label ?? view.id}</span>
-        <span className={cls('badge')} data-status={status}>
-          {statusLabel(status)}
-        </span>
-        <span className={cls('meta')}>{describeRun(view)}</span>
-        {actions}
-      </div>
+      {header === 'full' && (
+        <div className={cls('head')}>
+          <span className={cls('title')}>
+            {view.snapshot?.label ?? view.id}
+          </span>
+          <span className={cls('badge')} data-status={status}>
+            {statusLabel(status)}
+          </span>
+          <span className={cls('meta')}>{describeRun(view)}</span>
+          {actions}
+        </div>
+      )}
+      {header === 'round' && (
+        <div className={cls('head')}>
+          <span className={cls('round')}>
+            {`round ${String((round?.index ?? 0) + 1)}`}
+          </span>
+          <span className={cls('badge')} data-status={status}>
+            {statusLabel(status)}
+          </span>
+          <span className={cls('meta')}>{describeRound(view)}</span>
+          {actions}
+        </div>
+      )}
 
       {visible.length > 0 && (
         <ul className={cls('activities')}>
@@ -71,9 +115,11 @@ export function RunStream(
                 ? <ToolRow activity={row.activity} />
                 : (
                   <>
-                    <span className={cls('activity-kind')}>
-                      {activityKindLabel(row.activity.type)}
-                    </span>
+                    {showsKindLabel(row.activity.type) && (
+                      <span className={cls('activity-kind')}>
+                        {activityKindLabel(row.activity.type)}
+                      </span>
+                    )}
                     <span className={cls('activity-text')}>
                       {describeActivity(row.activity, root)}
                     </span>
@@ -115,31 +161,33 @@ export function RunStream(
  * One tool call: what was run, and what it returned.
  *
  * The NAME leads, because `Bash` or `Write` is what a person scans for — the
- * word "tool" was never the information. The outcome is stated only once it is
- * known, so a running call reads as running instead of claiming an exit code it
- * does not have yet.
+ * word "tool" was never the information. The command is shown unwrapped, and a
+ * call that simply worked says nothing about its own success: the output below
+ * it is the evidence, and words are kept for running and for failure.
  * @param props - the folded tool activity.
  * @returns the row's content.
  */
 function ToolRow(
   { activity }: { readonly activity: Activity & { readonly type: 'tool' } },
 ): ReactNode {
-  const outcome = activity.status === 'started'
-    ? 'running'
-    : activity.exitCode === undefined
-    ? statusLabel(activity.status)
-    : `exit ${String(activity.exitCode)}`;
+  const outcome = toolOutcome(activity);
   return (
     <>
-      <span className={cls('activity-kind')}>{activity.name}</span>
+      <span className={cls('activity-kind', 'activity-name')}>
+        {activity.name}
+      </span>
       <div className={cls('activity-text', 'activity-body')}>
         <span className={cls('command-line')}>
           {activity.detail !== undefined && (
-            <code className={cls('command')}>{activity.detail}</code>
+            <code className={cls('command')}>
+              {displayCommand(activity.detail)}
+            </code>
           )}
-          <span className={cls('outcome')} data-status={activity.status}>
-            {outcome}
-          </span>
+          {outcome !== undefined && (
+            <span className={cls('outcome')} data-status={activity.status}>
+              {outcome}
+            </span>
+          )}
         </span>
         {activity.output !== undefined && (
           <pre className={cls('output')}>{activity.output}</pre>
@@ -159,7 +207,7 @@ function Log({ text }: { readonly text: string }): ReactNode {
   return <pre className={cls('log')} ref={element}>{text}</pre>;
 }
 
-/** The header's metadata line. */
+/** The header's metadata line, for a run standing on its own. */
 function describeRun(view: RunView): string {
   const snapshot = view.snapshot;
   if (snapshot === undefined) return '';
@@ -168,6 +216,26 @@ function describeRun(view: RunView): string {
     `${snapshot.cli}/${snapshot.account}`,
     snapshot.model,
     snapshot.effort,
+    runElapsed(snapshot, Date.now()),
+    usage.length === 0 ? undefined : usage,
+  ].filter((part): part is string => part !== undefined && part.length > 0)
+    .join(' · ');
+}
+
+/**
+ * The metadata line for one round among several.
+ *
+ * Only what distinguishes this round from its siblings: how long it took and
+ * what it spent. The delegate, the account, the model and the effort are the
+ * same for every round, and the delegation's header has already said them.
+ * @param view - the round's view.
+ * @returns the line, or an empty string when the round has no snapshot yet.
+ */
+function describeRound(view: RunView): string {
+  const snapshot = view.snapshot;
+  if (snapshot === undefined) return '';
+  const usage = formatUsage(view.end?.usage ?? snapshot.usage);
+  return [
     runElapsed(snapshot, Date.now()),
     usage.length === 0 ? undefined : usage,
   ].filter((part): part is string => part !== undefined && part.length > 0)

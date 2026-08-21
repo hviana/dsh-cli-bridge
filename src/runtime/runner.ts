@@ -12,10 +12,11 @@
  *
  * @module dsh-cli-bridge/runtime/runner
  */
-import type { RunEnd } from '../shared/protocol.ts';
+import type { Activity, RunEnd } from '../shared/protocol.ts';
 import type { CliAdapter, SpawnPlan } from '../domain/adapters/index.ts';
 import type { ContractMarkers } from '../domain/markers.ts';
 import { LineAssembler } from '../domain/lines.ts';
+import { splitMarkers } from '../domain/markers.ts';
 import { classifyOutcome } from '../domain/outcome.ts';
 import { boundHead } from '../domain/text.ts';
 import type { LimitsConfig } from '../config.ts';
@@ -69,7 +70,10 @@ export async function driveTask(
   const assembler = new LineAssembler();
 
   const consume = (line: string): void => {
-    for (const activity of decoder.push(line)) run.state.activity(activity);
+    for (const activity of decoder.push(line)) {
+      const shown = forHumans(activity, run.markers);
+      if (shown !== undefined) run.state.activity(shown);
+    }
     const session = decoder.state().delegateSessionId;
     if (session !== undefined) run.state.bindDelegateSession(session);
   };
@@ -195,6 +199,30 @@ export async function driveLogin(
     terminate: () => handle.terminate(),
     settled,
   };
+}
+
+/**
+ * One activity as a PERSON should read it.
+ *
+ * The contract's markers are how the plugin talks to itself: `NEEDS_DIRECTION:`
+ * is the delegate handing a decision back, and the surface that puts that
+ * question to somebody renders it as a question. Streaming the marker line as
+ * prose as well showed a reader the machinery and then the same question twice.
+ *
+ * A message that was ONLY a marker carries nothing once peeled, so it is dropped
+ * rather than published as an empty row. Nothing is hidden either way: the raw
+ * transcript is streamed untouched and stays one click away in the full log.
+ * @param activity - the decoded activity.
+ * @param markers - the markers this run's contract stated.
+ * @returns the activity to publish, or `undefined` when it is all machinery.
+ */
+function forHumans(
+  activity: Activity,
+  markers: ContractMarkers,
+): Activity | undefined {
+  if (activity.type !== 'message') return activity;
+  const { body } = splitMarkers(activity.text, markers);
+  return body.length === 0 ? undefined : { type: 'message', text: body };
 }
 
 /**

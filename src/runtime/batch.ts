@@ -148,9 +148,20 @@ export class Batch {
       hub: this.deps.hub,
       directions: this.deps.directions,
       config: this.deps.config,
+      // The LIVE autonomy reader, not the configured defaults. A person turns
+      // autonomy on and off mid conversation and a delegation must see that at
+      // its next decision; omitting it here was what made every switch inert —
+      // the delegation fell back to `config.autonomy`, where all three are off,
+      // so a toggle moved the panel and reached nothing that decides.
+      ...this.deps.autonomy === undefined
+        ? {}
+        : { autonomy: this.deps.autonomy },
       now: this.deps.now,
       evidence: async () => lease.evidence(),
       ...this.deps.advisor === undefined ? {} : { advisor: this.deps.advisor },
+      ...this.deps.defaultRoute === undefined
+        ? {}
+        : { defaultRoute: this.deps.defaultRoute },
       ...this.deps.inquiry === undefined ? {} : { inquiry: this.deps.inquiry },
     });
     const own = new AbortController();

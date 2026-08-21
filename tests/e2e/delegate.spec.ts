@@ -212,7 +212,11 @@ function scriptedLlm(replies: readonly string[]) {
 }
 
 /** The plugin, wired to the real world and the stand-in delegates. */
-function bridge(overrides: Record<string, unknown> = {}, llm?: LlmPort) {
+function bridge(
+  overrides: Record<string, unknown> = {},
+  llm?: LlmPort,
+  defaultRoute?: { provider: string; model: string },
+) {
   const config = new Config({
     stateDir: join(root, 'state'),
     delegates: {
@@ -228,6 +232,7 @@ function bridge(overrides: Record<string, unknown> = {}, llm?: LlmPort) {
     platform: process.platform,
     nodePath: process.execPath,
     ...llm === undefined ? {} : { llm },
+    ...defaultRoute === undefined ? {} : { defaultRoute: () => defaultRoute },
   });
 }
 
@@ -529,5 +534,46 @@ describe('two real delegations at once', () => {
       }
     },
     30_000,
+  );
+});
+
+describe('autonomy on an ordinary session', () => {
+  it(
+    'decides on the composition default route when the session names no model',
+    async () => {
+      mode('ask');
+      const { llm, asked } = scriptedLlm(['Use the TypeError.']);
+      // No `agent` at all: a session that never named a provider or a model,
+      // which is what an agent created from the default composition looks like.
+      // Autonomy used to fall through to asking the human here, however it was
+      // set, because no route could be named for the consultation.
+      const operations = bridge({ autonomy: { decide: true } }, llm, {
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash',
+      });
+      try {
+        const [entry] = await operations.startBatch({
+          tasks: [{ cli: 'claude', prompt: 'Port the parser.' }],
+          permission: 'workspace-write',
+          base: repository,
+          signal: never,
+        });
+
+        expect(entry?.snapshot.status).toBe('completed');
+        expect(
+          entry?.snapshot.decisions.map((decision) =>
+            `${decision.kind}:${decision.source}`
+          ),
+        ).toEqual(['resume:advisor', 'finish:policy']);
+
+        // The consultation really ran on the composition's default route.
+        expect(asked[0]?.provider).toBe('deepseek-official');
+        expect(asked[0]?.model).toBe('deepseek-v4-flash');
+        // And the delegate really received the answer.
+        expect((await recorded())[1]?.prompt).toContain('Use the TypeError.');
+      } finally {
+        await operations.dispose();
+      }
+    },
   );
 });

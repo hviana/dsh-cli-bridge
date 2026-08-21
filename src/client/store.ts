@@ -11,6 +11,7 @@
 import type {
   AccountSnapshot,
   Activity,
+  AdviceRoute,
   AutonomySwitches,
   BridgeState,
   ControlRequest,
@@ -76,6 +77,11 @@ export interface StoreState {
   readonly toolchain: readonly ToolchainStatus[];
   /** Which automatic decisions the user has switched on. */
   readonly autonomy: AutonomySwitches;
+  /**
+   * The route an automatic decision would run on; absent when none can be
+   * resolved, in which case the switches cannot act however they are set.
+   */
+  readonly advice?: AdviceRoute;
   /** Whether the event stream is currently open. */
   readonly connected: boolean;
   /** Last transport or control failure, for the panel to show. */
@@ -183,12 +189,17 @@ export function createStore(options: StoreOptions): BridgeStore {
         { id: snapshot.id, activities: [], output: '' };
       views.set(snapshot.id, { ...existing, snapshot });
     }
+    // `advice` is dropped from the carried-over state before the fresh read is
+    // applied: a route the host can no longer name must VANISH, not linger as a
+    // stale promise that autonomy is able to act.
+    const { advice: _previous, ...carried } = state;
     let folded = index(
       {
-        ...state,
+        ...carried,
         accounts: next.accounts,
         toolchain: next.toolchain,
         autonomy: next.autonomy,
+        ...next.advice === undefined ? {} : { advice: next.advice },
       },
       views,
     );

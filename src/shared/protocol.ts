@@ -451,6 +451,19 @@ export interface AccountSnapshot {
   readonly lastUsedAt?: number;
 }
 
+/**
+ * Where an automatic decision would be sent.
+ *
+ * Its ABSENCE from {@link BridgeState} is the load-bearing part: a switch can be
+ * on while no route can be named, and then every question still goes to the
+ * human. Reporting the route is what makes that visible, instead of leaving a
+ * person waiting to answer a question the plugin promised to answer itself.
+ */
+export interface AdviceRoute {
+  readonly provider: string;
+  readonly model: string;
+}
+
 /** Everything a panel needs in one read. */
 export interface BridgeState {
   readonly runs: readonly RunSnapshot[];
@@ -459,6 +472,11 @@ export interface BridgeState {
   readonly toolchain: readonly ToolchainStatus[];
   /** Which of DeepSeek's automatic decisions the user has switched on. */
   readonly autonomy: AutonomySwitches;
+  /**
+   * The route those decisions would run on; absent when none can be resolved,
+   * in which case the switches cannot act however they are set.
+   */
+  readonly advice?: AdviceRoute;
 }
 
 /**

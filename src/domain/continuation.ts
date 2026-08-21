@@ -122,7 +122,12 @@ function onQuestion(facts: RoundFacts): Continuation {
     return {
       kind: 'ask',
       question,
-      reason: 'the delegate needs a decision and autonomy.decide is off',
+      // Name the ACTUAL cause. One fixed string for both read as "the setting is
+      // off" even when it was on and unusable — which is exactly the state a
+      // person needs told, because they turned it on and are still being asked.
+      reason: facts.autonomy.decide
+        ? 'autonomy.decide is on but there is no model route to consult'
+        : 'the delegate needs a decision and autonomy.decide is off',
     };
   }
   // Nobody can be reached: the caller sees the question and decides for itself.

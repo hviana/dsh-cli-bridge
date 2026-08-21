@@ -189,3 +189,44 @@ describe('parseAdvice: review', () => {
       .toEqual({ topic: 'review', accepted: false, fixes: 'x' });
   });
 });
+
+describe('what the arbiter is shown', () => {
+  const long = 'x'.repeat(20_000);
+  const big: AdviceContext = {
+    task: `Port the parser. ${long}`,
+    directions: [`keep the API ${long}`],
+    summary: `Ported it. ${long}`,
+    question: `Alias? ${long}`,
+    evidence: { files: ['src/parse.ts'], diffstat: `${long} 2 files changed` },
+  };
+
+  it('shows everything when no ceiling was configured', () => {
+    // The arbiter cannot run a command or open a file: it decides from what it
+    // is shown. Cutting that down does not make the decision cheaper, it makes
+    // it wrong — a review judging a clipped diff, or a decision taken against
+    // half of the task it was delegated.
+    for (const topic of ['decide', 'continue', 'review'] as const) {
+      const { prompt } = adviceRequest(topic, big);
+      expect(prompt).not.toContain('truncated');
+    }
+    const review = adviceRequest('review', big).prompt;
+    expect(review).toContain(long);
+    const decide = adviceRequest('decide', big).prompt;
+    expect(decide.length).toBeGreaterThan(60_000);
+  });
+
+  it('honours a ceiling a deployment configured', () => {
+    const capped = adviceRequest('review', { ...big, maxBytes: 512 }).prompt;
+    expect(capped).toContain('truncated');
+    expect(capped.length).toBeLessThan(10_000);
+  });
+
+  it('still says (none) for a section with nothing in it', () => {
+    const bare = adviceRequest('review', {
+      task: 'Do it.',
+      directions: [],
+      summary: '',
+    }).prompt;
+    expect(bare).toContain('(none)');
+  });
+});

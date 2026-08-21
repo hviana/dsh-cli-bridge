@@ -9,6 +9,7 @@
  * @module dsh-cli-bridge/runtime/operations
  */
 import type {
+  AdviceRoute,
   AutonomySwitches,
   BatchId,
   BridgeState,
@@ -24,7 +25,7 @@ import type {
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { AutonomyConfig, Config } from '../config.ts';
 import { AccountStore, type AddAccountRequest } from './accounts.ts';
-import { type AdvisorPort, modelAdvisor } from './advisor.ts';
+import { adviceTarget, type AdvisorPort, modelAdvisor } from './advisor.ts';
 import { Batch, type BatchEntry, type BatchTask } from './batch.ts';
 import { StreamHub } from './channel.ts';
 import type { Delegation } from './delegation.ts';
@@ -351,6 +352,7 @@ export class BridgeOperations {
       this.accounts.list(),
       this.toolchain.statuses(),
     ]);
+    const advice = this.adviceRoute();
     return {
       runs: sessionId === undefined
         ? this.runs.listAll()
@@ -359,7 +361,25 @@ export class BridgeOperations {
       accounts,
       toolchain,
       autonomy: this.switches,
+      ...advice === undefined ? {} : { advice },
     };
+  }
+
+  /**
+   * The route an automatic decision would run on right now.
+   *
+   * Resolved WITHOUT a session, because a state read holds no delegation: it
+   * answers "could autonomy act at all here", which is what a person flipping a
+   * switch is really asking. A live decision resolves the same way, with the
+   * calling session added as a second source.
+   * @returns the route, or `undefined` when autonomy cannot act.
+   */
+  private adviceRoute(): AdviceRoute | undefined {
+    return this.advisor === undefined ? undefined : adviceTarget(
+      this.config.autonomy.advisor,
+      undefined,
+      this.ports.defaultRoute?.(),
+    );
   }
 
   /**
@@ -444,6 +464,9 @@ export class BridgeOperations {
       workspaces: this.workspaces,
       merges: this.merges,
       ...this.advisor === undefined ? {} : { advisor: this.advisor },
+      ...this.ports.defaultRoute === undefined
+        ? {}
+        : { defaultRoute: this.ports.defaultRoute },
       ...this.inquiry === undefined ? {} : { inquiry: this.inquiry },
       ...inherit === undefined ? {} : { inherit },
       nextDelegationId: (): DelegationId => {

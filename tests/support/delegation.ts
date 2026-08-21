@@ -5,7 +5,11 @@ import { Config } from '../../src/config.ts';
 import type { Config as ResolvedConfig } from '../../src/config.ts';
 import type { AdviceRequest } from '../../src/domain/advice.ts';
 import { AccountStore } from '../../src/runtime/accounts.ts';
-import type { AdviceTarget, AdvisorPort } from '../../src/runtime/advisor.ts';
+import type {
+  AdviceReply,
+  AdviceTarget,
+  AdvisorPort,
+} from '../../src/runtime/advisor.ts';
 import { StreamHub } from '../../src/runtime/channel.ts';
 import {
   Delegation,
@@ -62,17 +66,27 @@ export class ScriptedAdvisor implements AdvisorPort {
   readonly asked: AdviceRequest[] = [];
   readonly targets: AdviceTarget[] = [];
 
-  constructor(private readonly replies: string[]) {}
+  /**
+   * @param replies - one reply per consultation, in order.
+   * @param finish - how the model stopped, which matters for an empty reply.
+   */
+  constructor(
+    private readonly replies: string[],
+    private readonly finish?: string,
+  ) {}
 
   async consult(
     request: AdviceRequest,
     target: AdviceTarget,
     signal?: AbortSignal,
-  ): Promise<string> {
+  ): Promise<AdviceReply> {
     this.asked.push(request);
     this.targets.push(target);
-    if (signal?.aborted === true) return '';
-    return this.replies.shift() ?? '';
+    if (signal?.aborted === true) return { text: '' };
+    return {
+      text: this.replies.shift() ?? '',
+      ...this.finish === undefined ? {} : { finish: this.finish },
+    };
   }
 }
 

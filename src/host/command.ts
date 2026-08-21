@@ -313,6 +313,16 @@ export function renderState(state: BridgeState): string {
         : on.join(', ')
     }`,
   );
+  // A switch that is on while nothing can be consulted still sends every
+  // question to the person at the keyboard. Saying so is the difference between
+  // a setting that does not apply and a setting that quietly does nothing.
+  if (on.length > 0) {
+    lines.push(
+      state.advice === undefined
+        ? '  ⚠ no model route to consult — questions still come to you. Set autonomy.advisor.provider and .model.'
+        : `  consulting ${state.advice.provider}/${state.advice.model}`,
+    );
+  }
 
   if (state.delegations.length > 0) {
     lines.push('', 'Tasks');

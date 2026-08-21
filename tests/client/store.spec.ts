@@ -594,3 +594,40 @@ describe('selecting what a view renders', () => {
     ]);
   });
 });
+
+describe('the route autonomy would consult', () => {
+  it('carries the route the host reports', async () => {
+    const { store } = build({
+      state: {
+        ...emptyState,
+        autonomy: { decide: true, continue: false, review: false },
+        advice: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      },
+    });
+    await store.refresh();
+    expect(store.getSnapshot().advice).toEqual({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+    });
+    store.dispose();
+  });
+
+  it('forgets a route the host stops reporting', async () => {
+    // Otherwise the panel keeps claiming autonomy can act after the
+    // composition's default model is gone.
+    const options: { state?: BridgeState } = {
+      state: {
+        ...emptyState,
+        advice: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      },
+    };
+    const { store } = build(options);
+    await store.refresh();
+    expect(store.getSnapshot().advice).toBeDefined();
+
+    options.state = { ...emptyState };
+    await store.refresh();
+    expect(store.getSnapshot().advice).toBeUndefined();
+    store.dispose();
+  });
+});

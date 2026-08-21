@@ -57,6 +57,11 @@ export const STYLES = `
 .${CSS_PREFIX}-activities { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .${CSS_PREFIX}-activity { display: flex; gap: 6px; align-items: baseline; }
 .${CSS_PREFIX}-activity-kind { opacity: 0.5; min-width: 62px; font-size: 10px; text-transform: uppercase; flex-shrink: 0; }
+/* A tool's name is a proper name — Bash, Write, MultiEdit — not a label, so it
+ * is spelled the way the delegate spells it. */
+.${CSS_PREFIX}-activity-name { text-transform: none; font-size: 11px; opacity: 0.6; }
+/* Which round this is, in the header a delegation's later rounds carry. */
+.${CSS_PREFIX}-round { opacity: 0.5; font-size: 10px; text-transform: uppercase; flex-shrink: 0; }
 .${CSS_PREFIX}-activity-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 /* A tool row carries a command, its outcome and its output, so its text side is
  * a column: the output block belongs under the command rather than beside it. */

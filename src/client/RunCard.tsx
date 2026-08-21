@@ -46,6 +46,10 @@ export function createRunCard(
               delegation={delegation}
               rounds={roundsOf(state, delegation.rounds)}
               store={store}
+              // The card's own title already carries the prompt, so a lone
+              // delegation naming it again is the same sentence twice. A batch
+              // keeps the names: they are what tells its tasks apart.
+              titled={delegations.length > 1}
             />
           ))}
         </>

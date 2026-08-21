@@ -9,15 +9,20 @@ import {
   describeDelegation,
   describeMerge,
   directionCopy,
+  displayCommand,
   displayPath,
   foldTranscript,
   formatBytes,
   formatDuration,
+  formatTokens,
   formatUsage,
+  interestingDecisions,
   pillLabel,
   runElapsed,
+  showsKindLabel,
   statusLabel,
   toolchainSourceLabel,
+  toolOutcome,
 } from '../../src/client/format.ts';
 import type {
   AccountSnapshot,
@@ -84,10 +89,28 @@ describe('formatUsage', () => {
     );
   });
 
-  it('shows the cost alone when it is known', () => {
+  it('shows the tokens AND the cost, so neither delegate hides half of it', () => {
     expect(formatUsage({ cachedInputTokens: 5, costUsd: 0.0125 })).toBe(
-      '$0.0125',
+      '5 cached · $0.0125',
     );
+    expect(
+      formatUsage({
+        inputTokens: 4,
+        cachedInputTokens: 58_626,
+        outputTokens: 163,
+        costUsd: 0.0752238,
+      }),
+    ).toBe('4 in · 58.6k cached · 163 out · $0.0752');
+  });
+
+  it('contributes no price when the delegate reports none', () => {
+    expect(
+      formatUsage({
+        inputTokens: 30_027,
+        cachedInputTokens: 25_088,
+        outputTokens: 119,
+      }),
+    ).toBe('30.0k in · 25.1k cached · 119 out');
   });
 });
 
@@ -474,5 +497,116 @@ describe('displayPath', () => {
         '/repo',
       ),
     ).toBe('add a.ts');
+  });
+});
+
+describe('formatTokens', () => {
+  it.each<[number, string]>([
+    [0, '0'],
+    [42, '42'],
+    [999, '999'],
+    [1000, '1.0k'],
+    [58_626, '58.6k'],
+    [1_000_000, '1.0M'],
+    [2_450_000, '2.5M'],
+  ])('abbreviates %s', (tokens, expected) => {
+    expect(formatTokens(tokens)).toBe(expected);
+  });
+});
+
+describe('toolOutcome', () => {
+  it('says nothing about a call that simply worked', () => {
+    expect(toolOutcome({ type: 'tool', name: 'Bash', status: 'completed' }))
+      .toBeUndefined();
+    expect(
+      toolOutcome({
+        type: 'tool',
+        name: 'command',
+        status: 'completed',
+        exitCode: 0,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('reports the two states a watcher must not miss', () => {
+    expect(toolOutcome({ type: 'tool', name: 'Bash', status: 'started' }))
+      .toBe('running');
+    expect(toolOutcome({ type: 'tool', name: 'Bash', status: 'failed' }))
+      .toBe('failed');
+    expect(
+      toolOutcome({
+        type: 'tool',
+        name: 'command',
+        status: 'completed',
+        exitCode: 2,
+      }),
+    ).toBe('exit 2');
+    expect(
+      toolOutcome({
+        type: 'tool',
+        name: 'command',
+        status: 'failed',
+        exitCode: 127,
+      }),
+    ).toBe('exit 127');
+  });
+});
+
+describe('displayCommand', () => {
+  it.each<[string, string]>([
+    ['/bin/bash -lc "printf \'hi\'"', "printf 'hi'"],
+    ["bash -lc 'ls -1'", 'ls -1'],
+    ['/usr/bin/sh -c "echo one"', 'echo one'],
+    ["zsh -ic 'echo two'", 'echo two'],
+  ])('peels the shell wrapper off %s', (detail, expected) => {
+    expect(displayCommand(detail)).toBe(expected);
+  });
+
+  it.each<[string, string]>([
+    ['npm test', 'npm test'],
+    ['/repo/src/a.ts', '/repo/src/a.ts'],
+    ["bash -lc ''", "bash -lc ''"],
+    ['bash -lc "unbalanced\'', 'bash -lc "unbalanced\''],
+  ])('leaves %s exactly as it came', (detail, expected) => {
+    expect(displayCommand(detail)).toBe(expected);
+  });
+});
+
+describe('showsKindLabel', () => {
+  it('labels everything except prose', () => {
+    expect(showsKindLabel('message')).toBe(false);
+    for (
+      const type of ['reasoning', 'tool', 'file', 'usage', 'notice'] as const
+    ) {
+      expect(showsKindLabel(type)).toBe(true);
+    }
+  });
+});
+
+/** One recorded decision, shaped for the filter under test. */
+function decisionRecord(
+  kind: DecisionRecord['kind'],
+  round: number,
+): DecisionRecord {
+  return { round, source: 'policy', kind, reason: 'because', at: 0 };
+}
+
+describe('interestingDecisions', () => {
+  it('drops the terminal decision the badge already states', () => {
+    expect(interestingDecisions([decisionRecord('finish', 1)])).toEqual([]);
+  });
+
+  it('keeps what a person would want to audit', () => {
+    const kept = interestingDecisions([
+      decisionRecord('ask', 1),
+      decisionRecord('resume', 2),
+      decisionRecord('consult', 3),
+      decisionRecord('finish', 4),
+    ]);
+    expect(kept.map((entry) => entry.kind)).toEqual([
+      'ask',
+      'resume',
+      'consult',
+    ]);
   });
 });

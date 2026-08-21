@@ -96,18 +96,48 @@ export interface AutonomyConfig {
   readonly advisor: AdvisorConfig;
 }
 
-/** The bounded model request behind every autonomous decision. */
+/** The model request behind every autonomous decision. */
 export interface AdvisorConfig {
   /** Provider route; empty uses the calling session's own. */
   readonly provider: string;
   /** Model id; empty uses the calling session's own. */
   readonly model: string;
-  /** Output cap for one decision. A decision is a sentence, not an essay. */
-  readonly maxTokens: number;
-  /** Wall-clock bound for one decision. */
+  /**
+   * Output cap for one decision — ABSENT by default, deliberately.
+   *
+   * A decision is not always a sentence. Answering the delegate's question can
+   * require reading the project first, and judging finished work means reasoning
+   * about what that work was for; on a reasoning model the output budget covers
+   * the thinking, and the thinking comes first. Any cap this plugin picked would
+   * be a guess about how much thought somebody else's question deserves, and too
+   * small a guess is not a shorter answer — it is NO answer, because the budget
+   * is spent before a word of prose is emitted.
+   *
+   * So the plugin imposes nothing and the model uses what its provider allows.
+   * Set this only to enforce a ceiling a deployment actually wants.
+   */
+  readonly maxTokens?: number;
+  /**
+   * INACTIVITY bound for one decision: how long the stream may say nothing.
+   *
+   * Not a total deadline. A consultation that is still producing is doing
+   * exactly what it was asked to do, and cutting it at an arbitrary wall-clock
+   * mark would discard the whole decision precisely when the question was hard
+   * enough to need the time. What must not happen is a request that HANGS,
+   * because a stalled decision holds the delegation and the tool call with it.
+   * Silence is what this bounds; any progress resets it.
+   */
   readonly timeoutMs: number;
-  /** Bytes of evidence — summary, files, diffstat — handed to a review. */
-  readonly evidenceMaxBytes: number;
+  /**
+   * Byte ceiling for each section of a consultation — ABSENT by default.
+   *
+   * It bounds every section, not only the evidence: the task as delegated, the
+   * standing directions, the delegate's report, and the diff. The arbiter cannot
+   * run a command or open a file — it decides from what it is shown — so cutting
+   * that down does not make the decision cheaper, it makes it wrong. Set this
+   * only where a deployment needs a hard payload ceiling.
+   */
+  readonly evidenceMaxBytes?: number;
 }
 
 /** How a delegation's work is isolated from the session workspace, and merged back. */
@@ -222,9 +252,15 @@ export const Config: Schema<unknown, Config> = Schema.object({
     advisor: Schema.object({
       provider: Schema.string().default(''),
       model: Schema.string().default(''),
-      maxTokens: Schema.natural().min(64).default(700),
+      // No default: the plugin does not decide how much thinking somebody
+      // else's question deserves. Present only when a deployment wants a ceiling.
+      maxTokens: Schema.natural().min(64),
+      // Silence, not total time: a consultation that keeps producing is never
+      // cut off, while one that hangs still releases the delegation.
       timeoutMs: Schema.natural().min(1000).default(60_000),
-      evidenceMaxBytes: Schema.natural().min(256).default(4096),
+      // No default: an arbiter that decides from what it is shown must be shown
+      // the whole thing.
+      evidenceMaxBytes: Schema.natural().min(256),
     }),
   }),
   isolation: Schema.object({

@@ -287,7 +287,7 @@ describe('autonomy.decide', () => {
 
   it('finishes rather than looping when the model cannot be reached', async () => {
     const advisor = {
-      consult: async (): Promise<string> => {
+      consult: async (): Promise<never> => {
         throw new Error('no adapter');
       },
     };
@@ -546,5 +546,80 @@ describe('bounds and failures', () => {
     const settled = await delegation.run(never);
     expect(settled.status).toBe('failed');
     expect(settled.end?.error).toContain('resume');
+  });
+});
+
+describe('an empty consultation', () => {
+  it('says on the channel why no decision was made', async () => {
+    // The delegation stops either way; what must not happen is stopping in
+    // silence, which reads as DeepSeek shrugging at a question it was asked to
+    // answer. The remedy is named because the cause is knowable.
+    const advisor = new ScriptedAdvisor([''], 'max-tokens');
+    const { delegation, frames } = buildDelegation({
+      script: rounds('Renamed it.\nNEEDS_DIRECTION: Keep the alias?'),
+      advisor,
+      agentRoute: ROUTE,
+      // The remedy is named only when a ceiling was actually configured: the
+      // plugin imposes none of its own.
+      config: { autonomy: { decide: true, advisor: { maxTokens: 512 } } },
+    });
+    const settled = await delegation.run(never);
+
+    expect(settled.status).toBe('needs_direction');
+    const notices = frames.flatMap((frame) =>
+      frame.kind === 'activity' && frame.activity.type === 'notice'
+        ? [frame.activity.text]
+        : []
+    );
+    expect(notices.some((text) => text.includes('maxTokens'))).toBe(true);
+    expect(notices.some((text) => text.includes('512 tokens'))).toBe(true);
+  });
+
+  it('names the route when the model simply had nothing to say', async () => {
+    const advisor = new ScriptedAdvisor([''], 'stop');
+    const { delegation, frames } = buildDelegation({
+      script: rounds('Renamed it.\nNEEDS_DIRECTION: Keep the alias?'),
+      advisor,
+      agentRoute: ROUTE,
+      config: { autonomy: { decide: true } },
+    });
+    await delegation.run(never);
+    const notices = frames.flatMap((frame) =>
+      frame.kind === 'activity' && frame.activity.type === 'notice'
+        ? [frame.activity.text]
+        : []
+    );
+    expect(
+      notices.some((text) =>
+        text.includes('deepseek-official/deepseek-v4') &&
+        text.includes('no answer')
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('an empty consultation with no configured ceiling', () => {
+  it('does not invent a budget to blame', async () => {
+    // Nothing to raise: the plugin imposed no cap, so the notice reports what
+    // happened instead of prescribing a setting that is not in play.
+    const advisor = new ScriptedAdvisor([''], 'max-tokens');
+    const { delegation, frames } = buildDelegation({
+      script: rounds('Renamed it.\nNEEDS_DIRECTION: Keep the alias?'),
+      advisor,
+      agentRoute: ROUTE,
+      config: { autonomy: { decide: true } },
+    });
+    await delegation.run(never);
+    const notices = frames.flatMap((frame) =>
+      frame.kind === 'activity' && frame.activity.type === 'notice'
+        ? [frame.activity.text]
+        : []
+    );
+    expect(notices.some((text) => text.includes('maxTokens'))).toBe(false);
+    expect(
+      notices.some((text) =>
+        text.includes('no answer') && text.includes('max-tokens')
+      ),
+    ).toBe(true);
   });
 });

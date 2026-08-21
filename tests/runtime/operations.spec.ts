@@ -575,3 +575,165 @@ describe('disposal', () => {
     expect(operations.listDelegations()).toEqual([]);
   });
 });
+
+describe('whether autonomy can act at all', () => {
+  /** A model seam that is never actually consulted by these reads. */
+  const llm = {
+    stream: () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta' as const, index: 0, text: '' };
+      },
+    }),
+  };
+
+  it('names the route a decision would run on', async () => {
+    const { operations } = build({
+      llm,
+      defaultRoute: {
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash',
+      },
+    });
+    expect((await operations.state()).advice).toEqual({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+    });
+  });
+
+  it('says nothing can act when no route can be named', async () => {
+    // The switch is ON and there is still no route: this is the state that used
+    // to look enabled while every question went to the human anyway.
+    const { operations } = build({
+      llm,
+      config: { autonomy: { decide: true } },
+    });
+    const state = await operations.state();
+    expect(state.autonomy.decide).toBe(true);
+    expect(state.advice).toBeUndefined();
+  });
+
+  it('says nothing can act when the composition has no model at all', async () => {
+    const { operations } = build({
+      defaultRoute: {
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash',
+      },
+    });
+    expect((await operations.state()).advice).toBeUndefined();
+  });
+
+  it('lets configuration override the composition default', async () => {
+    const { operations } = build({
+      llm,
+      defaultRoute: {
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash',
+      },
+      config: { autonomy: { advisor: { provider: 'cheap', model: 'tiny' } } },
+    });
+    expect((await operations.state()).advice).toEqual({
+      provider: 'cheap',
+      model: 'tiny',
+    });
+  });
+});
+
+/** A model that answers one consultation and records what it was asked. */
+function recordingLlm(answer: string) {
+  const asked: { provider: string; model: string }[] = [];
+  return {
+    asked,
+    llm: {
+      stream: (options: { provider: string; model: string }) => {
+        asked.push({ provider: options.provider, model: options.model });
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield { type: 'text-delta' as const, index: 0, text: answer };
+          },
+        };
+      },
+    },
+  };
+}
+
+/** A delegate that asks on its first round and finishes on its second. */
+function askThenFinish() {
+  let round = 0;
+  return (argv: readonly string[]) => {
+    if (argv.includes('--version')) return { stdout: ['1.0.0'] };
+    round += 1;
+    return {
+      stdout: [
+        JSON.stringify({
+          type: 'result',
+          is_error: false,
+          session_id: 's1',
+          result: round === 1
+            ? 'Started.\nNEEDS_DIRECTION: Which error type should I use?'
+            : 'Done.',
+        }) + '\n',
+      ],
+    };
+  };
+}
+
+describe('a switch flipped at runtime', () => {
+  it('reaches the delegation that runs after it', async () => {
+    const { llm, asked } = recordingLlm('Use the TypeError.');
+    const { operations } = build({
+      llm,
+      defaultRoute: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+      script: askThenFinish(),
+    });
+
+    // Exactly what `/cli auto decide on` and the panel checkbox do.
+    const response = await operations.control({
+      op: 'autonomy.set',
+      switch: 'decide',
+      on: true,
+    });
+    expect(response.ok).toBe(true);
+
+    const [entry] = await operations.startBatch({
+      tasks: [{ cli: 'claude', prompt: 'Port the parser.' }],
+      permission: 'read-only',
+      base: '/repo',
+      signal: new AbortController().signal,
+    });
+
+    // The switch used to change the panel and nothing else: the delegation read
+    // the configured defaults, saw `decide: false`, and asked the human — while
+    // the state it was rendered from said the switch was on.
+    expect(
+      entry?.snapshot.decisions.map((decision) =>
+        `${decision.kind}:${decision.source}`
+      ),
+    ).toEqual(['resume:advisor', 'finish:policy']);
+    expect(entry?.snapshot.status).toBe('completed');
+    expect(asked).toEqual([{
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-pro',
+    }]);
+    await operations.dispose();
+  });
+
+  it('still asks the human when it is off', async () => {
+    const { llm, asked } = recordingLlm('Use the TypeError.');
+    const { operations } = build({
+      llm,
+      defaultRoute: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+      script: askThenFinish(),
+    });
+    const [entry] = await operations.startBatch({
+      tasks: [{ cli: 'claude', prompt: 'Port the parser.' }],
+      permission: 'read-only',
+      base: '/repo',
+      signal: new AbortController().signal,
+    });
+    // Nothing consulted, and the question comes back for the caller: autonomy
+    // off must stay off, which is the behaviour that spends nothing unasked.
+    expect(asked).toEqual([]);
+    expect(entry?.snapshot.status).toBe('needs_direction');
+    await operations.dispose();
+  });
+});

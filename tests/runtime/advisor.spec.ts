@@ -55,7 +55,7 @@ describe('consulting the model', () => {
   it('joins the prose it streamed back', async () => {
     const { llm } = fakeLlm([text('{"answer":'), text('"keep it"}')]);
     expect(await modelAdvisor(llm, advisorConfig).consult(request, target))
-      .toBe('{"answer":"keep it"}');
+      .toEqual({ text: '{"answer":"keep it"}' });
   });
 
   it('asks on the route and model it was given', async () => {
@@ -78,10 +78,23 @@ describe('consulting the model', () => {
     });
   });
 
-  it('caps its own output, because a decision is a sentence', async () => {
+  it('imposes NO output budget of its own', async () => {
+    // A decision can require reading the project first, and on a reasoning model
+    // the output budget covers that thinking. Any cap the plugin picked would be
+    // a guess about how much thought the question deserves — and too small a
+    // guess yields no answer at all, not a shorter one.
     const { llm, calls } = fakeLlm([text('ok')]);
     await modelAdvisor(llm, advisorConfig).consult(request, target);
-    expect(calls[0]?.maxTokens).toBe(advisorConfig.maxTokens);
+    expect(advisorConfig.maxTokens).toBeUndefined();
+    expect(calls[0]).not.toHaveProperty('maxTokens');
+  });
+
+  it('passes a ceiling a deployment actually configured', async () => {
+    const capped = new Config({ autonomy: { advisor: { maxTokens: 512 } } })
+      .autonomy.advisor;
+    const { llm, calls } = fakeLlm([text('ok')]);
+    await modelAdvisor(llm, capped).consult(request, target);
+    expect(calls[0]?.maxTokens).toBe(512);
   });
 
   it('ignores the model’s reasoning and keeps its conclusion', async () => {
@@ -90,7 +103,7 @@ describe('consulting the model', () => {
       text('{"answer":"keep it"}'),
     ]);
     expect(await modelAdvisor(llm, advisorConfig).consult(request, target))
-      .toBe('{"answer":"keep it"}');
+      .toEqual({ text: '{"answer":"keep it"}' });
   });
 
   it('stops on the caller’s signal — a user direction arriving', async () => {
@@ -102,7 +115,7 @@ describe('consulting the model', () => {
       control.signal,
     );
     control.abort();
-    expect(await consulting).toBe('partial');
+    expect(await consulting).toMatchObject({ text: 'partial' });
     expect(calls[0]?.signal?.aborted).toBe(true);
   });
 
@@ -116,7 +129,7 @@ describe('consulting the model', () => {
         target,
         control.signal,
       ),
-    ).toBe('');
+    ).toEqual({ text: '' });
     expect(calls).toEqual([]);
   });
 
@@ -185,4 +198,127 @@ describe('adviceTarget', () => {
   ])('reports %s as unusable, so nothing is consulted', (_label, session) => {
     expect(adviceTarget(advisorConfig, session)).toBeUndefined();
   });
+});
+
+describe('adviceTarget: where a decision runs', () => {
+  const none = new Config({}).autonomy.advisor;
+
+  it('falls back to the composition default, which is the ordinary case', () => {
+    // An agent created without an explicit model carries empty options, so the
+    // first two sources are blank in a standard deployment. Without this source
+    // every autonomy switch became a no-op that still asked the human.
+    expect(
+      adviceTarget(none, undefined, {
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash',
+      }),
+    ).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' });
+  });
+
+  it('prefers the session over the default, and config over both', () => {
+    const fallback = { provider: 'fallback-route', model: 'fallback-model' };
+    expect(
+      adviceTarget(
+        none,
+        { provider: 'session-route', model: 'session-model' },
+        fallback,
+      ),
+    ).toEqual({ provider: 'session-route', model: 'session-model' });
+    expect(
+      adviceTarget(
+        { ...none, provider: 'configured', model: 'configured-model' },
+        { provider: 'session-route', model: 'session-model' },
+        fallback,
+      ),
+    ).toEqual({ provider: 'configured', model: 'configured-model' });
+  });
+
+  it('completes one half from a later source', () => {
+    expect(
+      adviceTarget({ ...none, model: 'configured-model' }, {
+        provider: 'session-route',
+      }),
+    ).toEqual({ provider: 'session-route', model: 'configured-model' });
+    expect(
+      adviceTarget(none, { model: 'session-model' }, {
+        provider: 'fallback-route',
+      }),
+    ).toEqual({ provider: 'fallback-route', model: 'session-model' });
+  });
+
+  it('names nothing when no source does', () => {
+    expect(adviceTarget(none, undefined, undefined)).toBeUndefined();
+    expect(adviceTarget(none, { provider: 'route' }, {})).toBeUndefined();
+    expect(adviceTarget(none, {}, { model: 'model-only' })).toBeUndefined();
+    expect(
+      adviceTarget(none, { provider: '', model: '' }, {
+        provider: '',
+        model: '',
+      }),
+    )
+      .toBeUndefined();
+  });
+});
+
+describe('why an answer never arrived', () => {
+  it('reports the finish reason, so an empty answer can explain itself', async () => {
+    // A reasoning model spends the output budget thinking BEFORE it says
+    // anything, so too small a cap yields no prose at all. Without the finish
+    // reason that is indistinguishable from a model with nothing to say — and
+    // the two want opposite responses.
+    const { llm } = fakeLlm([
+      { type: 'reasoning-delta', index: 0, text: 'weighing the options…' },
+      { type: 'finish', reason: { kind: 'max-tokens' } },
+    ]);
+    expect(await modelAdvisor(llm, advisorConfig).consult(request, target))
+      .toEqual({ text: '', finish: 'max-tokens' });
+  });
+
+  it('reports a plain stop with an answer, which needs no remedy', async () => {
+    const { llm } = fakeLlm([
+      text('keep it'),
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]);
+    expect(await modelAdvisor(llm, advisorConfig).consult(request, target))
+      .toEqual({ text: 'keep it', finish: 'stop' });
+  });
+});
+
+describe('the bound is silence, not duration', () => {
+  it('never cuts off a consultation that is still producing', async () => {
+    // The decision may require reading the project before it can be made. A
+    // total wall-clock deadline would discard the whole consultation exactly
+    // when the question was hard enough to need the time; only silence is a
+    // symptom of anything being wrong.
+    const bound = new Config({ autonomy: { advisor: { timeoutMs: 1000 } } })
+      .autonomy.advisor;
+    const slowButBusy: LlmPort = {
+      stream(): AsyncIterable<StreamChunk> {
+        return {
+          async *[Symbol.asyncIterator]() {
+            // Five gaps of 600ms: three seconds in total, and never 1000ms of
+            // silence. Sequential by nature — a stream arrives one chunk at a
+            // time, which is the whole point of the test.
+            /* oxlint-disable eslint/no-await-in-loop */
+            for (const part of ['stu', 'dy', 'ing', ' the', ' project']) {
+              await new Promise((resolve) => setTimeout(resolve, 600));
+              yield { type: 'text-delta', index: 0, text: part };
+            }
+            /* oxlint-enable eslint/no-await-in-loop */
+          },
+        };
+      },
+    };
+    expect(await modelAdvisor(slowButBusy, bound).consult(request, target))
+      .toEqual({ text: 'studying the project' });
+  }, 15_000);
+
+  it('still ends a consultation that has gone quiet', async () => {
+    const bound = new Config({ autonomy: { advisor: { timeoutMs: 1000 } } })
+      .autonomy.advisor;
+    // Says one thing, then hangs: the delegation must not be held open by it.
+    const { llm } = fakeLlm([text('partial')], { hold: true });
+    expect(await modelAdvisor(llm, bound).consult(request, target))
+      .toMatchObject({ text: 'partial' });
+  }, 15_000);
 });

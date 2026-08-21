@@ -22,6 +22,7 @@ import {
   describeDelegation,
   describeMerge,
   directionCopy,
+  interestingDecisions,
   statusLabel,
 } from './format.ts';
 import { RunStream } from './RunStream.tsx';
@@ -36,22 +37,33 @@ export interface DelegationViewProps {
   readonly store: BridgeStore;
   /** Activities shown per round before the list scrolls. */
   readonly visibleActivities?: number;
+  /**
+   * Whether to state the task again.
+   *
+   * A tool card already carries the prompt in its own title, so a lone
+   * delegation inside one repeats it by naming it a second time. Several
+   * delegations in one card DO need naming — that is what tells them apart —
+   * and the panel, which has no card title above it, always does.
+   */
+  readonly titled?: boolean;
 }
 
 /** A delegation's header, rounds, directions, and the human's input. */
 export function DelegationView(
-  { delegation, rounds, store, visibleActivities }: DelegationViewProps,
+  { delegation, rounds, store, visibleActivities, titled = true }:
+    DelegationViewProps,
 ): ReactNode {
   const live = delegation.finishedAt === undefined;
   const merge = describeMerge(delegation.workspace);
   const pending = delegation.directions.filter((direction) =>
     direction.consumedRound === undefined
   );
+  const decisions = interestingDecisions(delegation.decisions);
 
   return (
     <div className={cls('delegation')} data-status={delegation.status}>
       <div className={cls('head')}>
-        <span className={cls('title')}>{delegation.label}</span>
+        {titled && <span className={cls('title')}>{delegation.label}</span>}
         <span className={cls('badge')} data-status={delegation.status}>
           {statusLabel(delegation.status)}
         </span>
@@ -87,6 +99,9 @@ export function DelegationView(
           // The delegation knows where its work happened, and the rounds render
           // their file paths relative to it.
           root={delegation.workspace.path}
+          // Telling the round where it sits is what stops it from repeating the
+          // header above it.
+          round={{ index: position, total: rounds.length }}
           {
             // Only the round in progress is worth a long activity list; the ones
             // already decided are context.
@@ -97,9 +112,9 @@ export function DelegationView(
         />
       ))}
 
-      {delegation.decisions.length > 0 && (
+      {decisions.length > 0 && (
         <ul className={cls('decisions')}>
-          {delegation.decisions.map((decision) => (
+          {decisions.map((decision) => (
             <li
               key={`${String(decision.round)}-${decision.kind}`}
               className={cls('decision')}

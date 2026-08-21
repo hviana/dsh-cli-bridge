@@ -120,6 +120,23 @@ export interface RuntimePorts {
    * delegate's question is returned to the caller instead.
    */
   readonly questions?: UserQuestionsPort;
+  /**
+   * The route this composition sends a model request on when nothing names one.
+   *
+   * A consultation must state a provider and a model explicitly, and a session
+   * usually names NEITHER — the harness has its own default-model service for
+   * exactly that, and an agent created without an explicit selection carries
+   * empty options. Reading that default here is what lets autonomy work in an
+   * ordinary deployment instead of silently declining to act because the plugin
+   * could not name a model.
+   *
+   * It is a function, not a value: the harness reads its user settings layer
+   * live, so the answer may change between one decision and the next. Absent
+   * when the composition has no default-model service.
+   */
+  readonly defaultRoute?: () =>
+    | { readonly provider?: string; readonly model?: string }
+    | undefined;
   /** Epoch milliseconds. Injected so run timings are deterministic under test. */
   readonly now: () => number;
   /** Host platform, consulted only where a real OS difference exists. */

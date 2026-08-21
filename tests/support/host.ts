@@ -153,6 +153,13 @@ export function buildOperations(options: {
   llm?: LlmPort;
   /** The user-questions seam; omit to compose one that cannot reach a human. */
   questions?: UserQuestionsPort;
+  /**
+   * The composition's default model route.
+   *
+   * Omit to compose a deployment that names no default — the state a session
+   * without an explicit model is in, where autonomy has no route to run on.
+   */
+  defaultRoute?: { provider?: string; model?: string };
 } = {}) {
   const config: ResolvedConfig = new Config(options.config ?? {});
   const files = new MemoryFiles();
@@ -172,6 +179,9 @@ export function buildOperations(options: {
     credentials: { resolve: async (ref) => options.secrets?.[ref] },
     ...options.llm === undefined ? {} : { llm: options.llm },
     ...options.questions === undefined ? {} : { questions: options.questions },
+    ...options.defaultRoute === undefined
+      ? {}
+      : { defaultRoute: () => options.defaultRoute },
   };
   const operations = new BridgeOperations(config, ports);
   return { operations, config, files, clock, process };

@@ -43,8 +43,16 @@ export interface AdviceContext {
   readonly question?: string;
   /** What the delegate produced, for a `review`. */
   readonly evidence?: Evidence;
-  /** Byte budget for each section of the prompt. */
-  readonly maxBytes: number;
+  /**
+   * Byte budget for each section of the prompt — ABSENT by default.
+   *
+   * The arbiter decides from what it is shown and nothing else: it cannot run a
+   * command or open a file. Truncating what it is shown therefore does not make
+   * the decision cheaper, it makes it WRONG — a review judging a clipped diff, or
+   * a decision taken against half of the task it was delegated. So nothing is cut
+   * unless a deployment asks for a ceiling.
+   */
+  readonly maxBytes?: number;
 }
 
 const SYSTEM = [
@@ -181,11 +189,12 @@ export function parseAdvice(topic: AdviceTopic, text: string): Advice {
   }
 }
 
-/** One titled section of a prompt, bounded. */
-function section(title: string, body: string, maxBytes: number): string {
+/** One titled section of a prompt, bounded only when a ceiling was configured. */
+function section(title: string, body: string, maxBytes?: number): string {
   const text = body.trim();
+  if (text.length === 0) return `## ${title}\n(none)`;
   return `## ${title}\n${
-    text.length === 0 ? '(none)' : boundHead(text, maxBytes)
+    maxBytes === undefined ? text : boundHead(text, maxBytes)
   }`;
 }
 
@@ -209,16 +218,18 @@ function evidenceSection(context: AdviceContext): string {
     ? ''
     : `Files touched:\n${evidence.files.map((file) => `- ${file}`).join('\n')}`;
   // The diffstat is the newest and most concrete evidence, so it keeps its tail
-  // rather than its head when it has to be cut.
+  // rather than its head when it has to be cut at all.
   const diffstat = evidence.diffstat === undefined
     ? ''
     : `Diff against the base:\n${
-      boundTail(evidence.diffstat.trim(), context.maxBytes)
+      context.maxBytes === undefined
+        ? evidence.diffstat.trim()
+        : boundTail(evidence.diffstat.trim(), context.maxBytes)
     }`;
   return section(
     'Evidence',
     [files, diffstat].filter((part) => part.length > 0).join('\n\n'),
-    context.maxBytes * 2,
+    context.maxBytes === undefined ? undefined : context.maxBytes * 2,
   );
 }
 

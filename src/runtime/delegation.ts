@@ -34,6 +34,7 @@ import type { Continuation, RoundFacts } from '../domain/continuation.ts';
 import { applyAdvice, applyAnswer, nextStep } from '../domain/continuation.ts';
 import { boundHead, oneLineLabel } from '../domain/text.ts';
 import type { AutonomyConfig, Config } from '../config.ts';
+import { AMBIENT_ACCOUNT_ID, bareAccountId } from './accounts.ts';
 import { adviceTarget, type AdvisorPort } from './advisor.ts';
 import type { StreamHub } from './channel.ts';
 import type { DirectionLedger } from './directions.ts';
@@ -100,6 +101,16 @@ export interface DelegationDeps {
   readonly autonomy?: () => AutonomyConfig;
   /** Absent when the composition cannot consult a model. */
   readonly advisor?: AdvisorPort;
+  /**
+   * The composition's default model route, read fresh on every decision.
+   *
+   * Without it a session that never named a model — the ordinary case — leaves
+   * a consultation with no route to run on, and every autonomy switch decays
+   * into asking the human.
+   */
+  readonly defaultRoute?: () =>
+    | { readonly provider?: string; readonly model?: string }
+    | undefined;
   /** Absent when the composition cannot reach a human. */
   readonly inquiry?: InquiryPort;
   /**
@@ -126,7 +137,13 @@ export class Delegation {
       batch: request.batch,
       label: oneLineLabel(request.task, LABEL_CHARS),
       cli: request.cli,
-      account: request.account ?? 'ambient',
+      // The id is stored CANONICAL, not as the caller spelled it. A caller may
+      // name an account the way the listing prints it — `claude/personal` — and
+      // recording that verbatim made every surface read `claude/claude/personal`
+      // once it prefixed the delegate again.
+      account: request.account === undefined
+        ? AMBIENT_ACCOUNT_ID
+        : bareAccountId(request.cli, request.account),
       permission: request.permission,
       status: 'running',
       rounds: [],
@@ -366,6 +383,7 @@ export class Delegation {
     const target = adviceTarget(
       this.autonomy.advisor,
       this.request.agent?.options,
+      this.deps.defaultRoute?.(),
     );
     if (advisor === undefined || target === undefined) return undefined;
     if (topic === 'continue') this.continueJudged = true;
@@ -378,14 +396,36 @@ export class Delegation {
         record.text
       ),
       summary: end.summary,
-      maxBytes: this.autonomy.advisor.evidenceMaxBytes,
+      ...this.autonomy.advisor.evidenceMaxBytes === undefined
+        ? {}
+        : { maxBytes: this.autonomy.advisor.evidenceMaxBytes },
       ...end.question === undefined ? {} : { question: end.question },
       ...evidence === undefined ? {} : { evidence },
     });
 
     try {
       const reply = await advisor.consult(request, target, signal);
-      return applyAdvice(parseAdvice(topic, reply), this.facts(round, end));
+      // An empty answer is the one outcome nobody can interpret from the
+      // outside: the delegation just stops, looking as if DeepSeek shrugged. Say
+      // why — and name a remedy only when there is one to name, because the
+      // plugin imposes no output budget of its own.
+      if (reply.text.trim().length === 0) {
+        const cap = this.autonomy.advisor.maxTokens;
+        this.note(
+          'warn',
+          reply.finish === 'max-tokens' && cap !== undefined
+            ? `autonomy.${topic}: ${target.provider}/${target.model} spent the configured output budget of ${
+              String(cap)
+            } tokens without answering — raise or remove autonomy.advisor.maxTokens (a reasoning model spends it thinking first)`
+            : `autonomy.${topic}: ${target.provider}/${target.model} returned no answer${
+              reply.finish === undefined ? '' : ` (stopped: ${reply.finish})`
+            }`,
+        );
+      }
+      return applyAdvice(
+        parseAdvice(topic, reply.text),
+        this.facts(round, end),
+      );
     } catch (error) {
       // A model that cannot be reached must not stall or loop the delegation.
       this.note(
@@ -432,8 +472,11 @@ export class Delegation {
       canAskHuman: this.deps.inquiry !== undefined &&
         this.deps.config.inquiry.enabled,
       canAdvise: this.deps.advisor !== undefined &&
-        adviceTarget(this.autonomy.advisor, this.request.agent?.options) !==
-          undefined,
+        adviceTarget(
+            this.autonomy.advisor,
+            this.request.agent?.options,
+            this.deps.defaultRoute?.(),
+          ) !== undefined,
       ...pending === undefined ? {} : { pendingDirection: pending },
     };
   }

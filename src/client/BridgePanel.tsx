@@ -137,6 +137,19 @@ export function createBridgePanel(store: BridgeStore): () => ReactNode {
                 store={store}
               />
             ))}
+            {
+              /* A switch that is on with no route to consult keeps sending every
+              * question to the person who thought they had delegated it. */
+            }
+            {AUTONOMY_SWITCHES.some((name) => state.autonomy[name]) && (
+              <span
+                className={cls(state.advice === undefined ? 'error' : 'meta')}
+              >
+                {state.advice === undefined
+                  ? 'No model route to consult — questions still come to you. Set autonomy.advisor.provider and .model.'
+                  : `Consulting ${state.advice.provider}/${state.advice.model}`}
+              </span>
+            )}
           </section>
         </div>
       </div>

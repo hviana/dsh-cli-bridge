@@ -304,3 +304,26 @@ describe('applyAnswer', () => {
     expect(applyAnswer('  ')).toMatchObject({ kind: 'finish' });
   });
 });
+
+describe('why a question went to the human', () => {
+  it('says the setting is off when it is off', () => {
+    expect(nextStep(facts({ end: asked, autonomy: OFF }))).toMatchObject({
+      kind: 'ask',
+      reason: 'the delegate needs a decision and autonomy.decide is off',
+    });
+  });
+
+  it('says the route is missing when the setting is on but unusable', () => {
+    // The two causes used to share one string, so a person who had turned the
+    // switch on was told it was off — and the real fault, an unresolvable model
+    // route, was never named anywhere.
+    expect(
+      nextStep(
+        facts({ end: asked, autonomy: ON({ decide: true }), canAdvise: false }),
+      ),
+    ).toMatchObject({
+      kind: 'ask',
+      reason: 'autonomy.decide is on but there is no model route to consult',
+    });
+  });
+});
