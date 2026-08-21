@@ -169,7 +169,24 @@ function onCompletion(facts: RoundFacts): Continuation {
     };
   }
 
-  return { kind: 'finish', reason: 'the delegate reported the work finished' };
+  // Stopping here, nothing above acted. Say which cause it was, so the record
+  // can tell them apart: a review owed but unrunnable, a finish the session
+  // model confirmed, or a finish accepted on the delegate's word alone.
+  if (
+    facts.autonomy.review && facts.reviews < facts.autonomy.maxReviews &&
+    !facts.canAdvise
+  ) {
+    return {
+      kind: 'finish',
+      reason: 'autonomy.review is on but there is no model route to consult',
+    };
+  }
+  return {
+    kind: 'finish',
+    reason: facts.continueJudged
+      ? 'the session model judged the work finished'
+      : 'the delegate reported the work finished',
+  };
 }
 
 /** The instruction that carries declared remaining work back to the delegate. */

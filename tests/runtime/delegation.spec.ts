@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_NEXT_STEPS_MARKER as NEXT } from '../../src/domain/markers.ts';
-import type { AdviceRequest } from '../../src/domain/advice.ts';
+import type { AdviceRequest, Evidence } from '../../src/domain/advice.ts';
 import type { AdvisorPort } from '../../src/runtime/advisor.ts';
 import {
   buildDelegation,
@@ -835,5 +835,125 @@ describe('autonomy that loses its route mid-decision', () => {
     expect(
       settled.notes.some((note) => note.text.includes('returned no answer')),
     ).toBe(false);
+  });
+});
+
+describe('a review a user direction interrupted', () => {
+  it('does not consume the review slot, so the next round is still reviewed', async () => {
+    // The review count used to tick when the consultation was RAISED, so a
+    // direction landing during it spent the slot without any review happening —
+    // and with `maxReviews: 1` the next completed round silently skipped the
+    // review it was owed. A review counts once its verdict is actually used.
+    let first = true;
+    const asked: AdviceRequest[] = [];
+    const advisor: AdvisorPort = {
+      async consult(request, _target, signal) {
+        asked.push(request);
+        if (!first) return { text: '{"accepted":true}' };
+        first = false;
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted === true) resolve();
+          else {signal?.addEventListener('abort', () => resolve(), {
+              once: true,
+            });}
+        });
+        return { text: '' };
+      },
+    };
+    const { delegation, directions } = buildDelegation({
+      script: rounds('Done.', 'Dropped the alias.'),
+      advisor,
+      agentRoute: ROUTE,
+      config: { autonomy: { review: true, maxReviews: 1 } },
+    });
+    const running = delegation.run(never);
+    await until(() => asked.length === 1);
+    directions.add('d1', 'user', 'drop the alias');
+    const settled = await running;
+
+    expect(settled.status).toBe('completed');
+    expect(settled.decisions[0]).toMatchObject({
+      source: 'direction',
+      message: 'drop the alias',
+    });
+    // The second round was still reviewed, and the review's verdict is the
+    // last decision on the record.
+    expect(asked).toHaveLength(2);
+    expect(settled.decisions.at(-1)).toMatchObject({
+      reason: expect.stringContaining('accepted'),
+    });
+  });
+});
+
+describe('a cancellation that lands on the final decision', () => {
+  it('settles as cancelled and records no verdict nobody gave', async () => {
+    // Cancelling while the last consultation was running used to settle the
+    // delegation as completed, with "the session model accepted the work" on
+    // the record — a verdict the model never gave, read from an aborted ask.
+    const asked: AdviceRequest[] = [];
+    const advisor: AdvisorPort = {
+      async consult(request, _target, signal) {
+        asked.push(request);
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted === true) resolve();
+          else {signal?.addEventListener('abort', () => resolve(), {
+              once: true,
+            });}
+        });
+        return { text: '' };
+      },
+    };
+    const control = new AbortController();
+    const { delegation } = buildDelegation({
+      advisor,
+      agentRoute: ROUTE,
+      config: { autonomy: { review: true } },
+    });
+    const running = delegation.run(control.signal);
+    await until(() => asked.length === 1);
+    control.abort();
+    const settled = await running;
+
+    expect(settled.status).toBe('cancelled');
+    expect(settled.decisions).toEqual([]);
+  });
+});
+
+describe('a direction that lands while the review gathers evidence', () => {
+  it('gets through instead of waiting on the evidence', async () => {
+    // Evidence comes from outside the loop — a `git diff --stat` — and cannot
+    // be cancelled from in here. The wait is raced against the signal, so a
+    // direction during the gathering is not stuck behind it.
+    let evidenceStarted = false;
+    let gathers = 0;
+    const advisor = new ScriptedAdvisor(['{"accepted":true}']);
+    const { delegation, directions } = buildDelegation({
+      script: rounds('Done.', 'Dropped the alias.'),
+      advisor,
+      agentRoute: ROUTE,
+      config: { autonomy: { review: true } },
+      evidence: () => {
+        evidenceStarted = true;
+        gathers += 1;
+        return gathers === 1
+          ? new Promise<Evidence>(() => {})
+          : Promise.resolve({ files: [] });
+      },
+    });
+    const running = delegation.run(never);
+    await until(() => evidenceStarted);
+    directions.add('d1', 'user', 'drop the alias');
+    const settled = await running;
+
+    expect(settled.status).toBe('completed');
+    expect(settled.decisions[0]).toMatchObject({
+      source: 'direction',
+      message: 'drop the alias',
+    });
+    // The round after the direction was reviewed as it should have been.
+    expect(advisor.asked.at(-1)?.topic).toBe('review');
+    expect(settled.decisions.at(-1)).toMatchObject({
+      reason: expect.stringContaining('accepted'),
+    });
   });
 });

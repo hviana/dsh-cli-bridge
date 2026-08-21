@@ -215,6 +215,36 @@ describe('autonomy.review', () => {
     expect(nextStep(facts({ autonomy: both, continueJudged: true })))
       .toMatchObject({ kind: 'consult', topic: 'review' });
   });
+
+  it('names the missing route when a review is owed but cannot run', () => {
+    // Reviewing with no route to consult on used to read on the record exactly
+    // like reviewing that was never switched on: "the delegate reported the
+    // work finished". The two want opposite responses.
+    expect(nextStep(facts({ autonomy: on, canAdvise: false }))).toEqual({
+      kind: 'finish',
+      reason: 'autonomy.review is on but there is no model route to consult',
+    });
+  });
+
+  it('keeps the plain reason once the review budget is spent', () => {
+    expect(nextStep(facts({ autonomy: on, reviews: on.maxReviews }))).toEqual({
+      kind: 'finish',
+      reason: 'the delegate reported the work finished',
+    });
+  });
+
+  it('says the model judged the work finished when continue did', () => {
+    // A continue consultation that confirmed "finished" used to be recorded as
+    // if no model had been involved at all — the confirmation was untraceable.
+    expect(
+      nextStep(
+        facts({ autonomy: ON({ continue: true }), continueJudged: true }),
+      ),
+    ).toEqual({
+      kind: 'finish',
+      reason: 'the session model judged the work finished',
+    });
+  });
 });
 
 describe('applyAdvice', () => {

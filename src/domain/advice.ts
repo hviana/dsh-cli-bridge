@@ -180,9 +180,13 @@ export function parseAdvice(topic: AdviceTopic, text: string): Advice {
       if (finished === false && instruction !== undefined) {
         return { topic, finished: false, instruction };
       }
-      return finished === undefined
-        ? { topic, finished: true, malformed: true }
-        : { topic, finished: true };
+      // A `finished: false` that names no instruction breaks the asked-for shape
+      // just as much as prose does: the model said the work is NOT done and gave
+      // nothing to act on. Reading it as finished is right; flagging it is what
+      // keeps that reading distinguishable from a model that genuinely confirmed.
+      return finished === true
+        ? { topic, finished: true }
+        : { topic, finished: true, malformed: true };
     }
     case 'review': {
       const accepted = readBoolean(object, 'accepted');
@@ -190,9 +194,11 @@ export function parseAdvice(topic: AdviceTopic, text: string): Advice {
       if (accepted === false && fixes !== undefined) {
         return { topic, accepted: false, fixes };
       }
-      return accepted === undefined
-        ? { topic, accepted: true, malformed: true }
-        : { topic, accepted: true };
+      // The same shape as continue: a rejection that names no fix is a broken
+      // reply, read as acceptance for the same reason and flagged the same way.
+      return accepted === true
+        ? { topic, accepted: true }
+        : { topic, accepted: true, malformed: true };
     }
   }
 }

@@ -196,9 +196,20 @@ export class Delegation {
         if (end === undefined) break;
         this.charge(end.usage);
         const step = await this.decide(round, end, signal);
-        this.record(round, step);
+        // A cancellation landing while the decision was being made must not be
+        // recorded as the decision it interrupted: the conservative reading of
+        // an aborted consultation is a verdict nobody gave ("accepted"), and an
+        // aborted question still looks answerable. Cancelled is what happened.
+        if (!signal.aborted) this.record(round, step);
         if (step.kind !== 'resume') {
-          this.settle(end, step.kind === 'ask' ? 'needs_direction' : undefined);
+          this.settle(
+            end,
+            signal.aborted
+              ? 'cancelled'
+              : step.kind === 'ask'
+              ? 'needs_direction'
+              : undefined,
+          );
           return this.snapshot;
         }
         message = step.message;
@@ -376,6 +387,13 @@ export class Delegation {
           }
           return step;
         }
+        // A review counts once its verdict is actually used. Counting it at the
+        // consultation site instead counted reviews that never happened — one
+        // interrupted by a user direction — and with the slot gone, the next
+        // completed round silently skipped the review it was owed.
+        if (step.kind === 'consult' && step.topic === 'review') {
+          this.reviews += 1;
+        }
         step = answered;
       } finally {
         waiter.dispose();
@@ -454,9 +472,10 @@ export class Delegation {
       );
       return undefined;
     }
-    if (topic === 'review') this.reviews += 1;
 
-    const evidence = topic === 'review' ? await this.evidence() : undefined;
+    const evidence = topic === 'review'
+      ? await this.evidence(signal)
+      : undefined;
     const request = adviceRequest(topic, {
       task: this.request.task,
       directions: this.deps.directions.all(this.request.id).map((record) =>
@@ -530,10 +549,27 @@ export class Delegation {
     }
   }
 
-  /** What the delegation produced, for a review. */
-  private async evidence(): Promise<Evidence> {
+  /**
+   * What the delegation produced, for a review.
+   *
+   * The supplied evidence is gathered outside this loop — a `git diff --stat`
+   * against the base — and cannot be cancelled from in here. Racing it against
+   * the signal keeps the review path responsive: a user direction or a
+   * cancellation ends the wait, and the aborted consultation that follows is
+   * settled by the caller exactly as any other interrupted consultation is.
+   */
+  private async evidence(signal: AbortSignal): Promise<Evidence> {
     const files = [...this.files].toSorted();
-    const supplied = await this.deps.evidence?.().catch(() => undefined);
+    const supplied = this.deps.evidence === undefined
+      ? undefined
+      : await Promise.race([
+        this.deps.evidence().catch(() => undefined),
+        new Promise<undefined>((resolve) => {
+          signal.addEventListener('abort', () => resolve(undefined), {
+            once: true,
+          });
+        }),
+      ]);
     return {
       files: supplied?.files !== undefined && supplied.files.length > 0
         ? supplied.files

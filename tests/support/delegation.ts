@@ -6,7 +6,7 @@ import type {
   AutonomyConfig,
   Config as ResolvedConfig,
 } from '../../src/config.ts';
-import type { AdviceRequest } from '../../src/domain/advice.ts';
+import type { AdviceRequest, Evidence } from '../../src/domain/advice.ts';
 import { AccountStore } from '../../src/runtime/accounts.ts';
 import type {
   AdviceReply,
@@ -129,6 +129,8 @@ export function buildDelegation(options: {
   defaultRoute?: () => { provider?: string; model?: string } | undefined;
   /** The live autonomy reader; absent falls back to the configured settings. */
   autonomy?: () => AutonomyConfig;
+  /** What the delegation produced, for a review; absent means no supplier. */
+  evidence?: () => Promise<Evidence>;
 } = {}) {
   const config: ResolvedConfig = new Config(options.config ?? {});
   const paths = new BridgePaths('/state');
@@ -193,6 +195,7 @@ export function buildDelegation(options: {
       ? {}
       : { defaultRoute: options.defaultRoute },
     ...options.autonomy === undefined ? {} : { autonomy: options.autonomy },
+    ...options.evidence === undefined ? {} : { evidence: options.evidence },
   });
 
   return { delegation, directions, runs, hub, frames, process, config, clock };

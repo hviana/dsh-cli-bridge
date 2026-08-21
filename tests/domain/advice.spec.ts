@@ -144,12 +144,16 @@ describe('parseAdvice: continue', () => {
   it.each([
     ['a rejection with no instruction', '{"finished":false}'],
     ['an empty instruction', '{"finished":false,"instruction":"   "}'],
-  ])('resolves %s toward finished, so nothing can loop', (_label, reply) => {
-    expect(parseAdvice('continue', reply)).toEqual({
-      topic: 'continue',
-      finished: true,
-    });
-  });
+  ])(
+    'resolves %s toward finished, so nothing can loop, and flags the broken shape',
+    (_label, reply) => {
+      expect(parseAdvice('continue', reply)).toEqual({
+        topic: 'continue',
+        finished: true,
+        malformed: true,
+      });
+    },
+  );
 
   it.each([
     ['an unparseable reply', 'I think it is done?'],
@@ -187,9 +191,13 @@ describe('parseAdvice: review', () => {
   });
 
   it('resolves a rejection with no fixes toward accepted, so nothing can loop', () => {
+    // The model said the work was NOT acceptable and named nothing to fix — a
+    // broken reply, read as acceptance, and flagged so the caller can tell it
+    // apart from a reviewer that genuinely approved.
     expect(parseAdvice('review', '{"accepted":false}')).toEqual({
       topic: 'review',
       accepted: true,
+      malformed: true,
     });
   });
 
