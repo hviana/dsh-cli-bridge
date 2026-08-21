@@ -29,13 +29,16 @@ export interface AdviceReply {
   /** The prose the model concluded with; empty when it never got that far. */
   readonly text: string;
   /**
-   * Why generation stopped, when the adapter reported it.
+   * Why generation stopped.
    *
-   * Kept because an EMPTY answer is otherwise unexplainable, and the two causes
-   * call for opposite responses from whoever reads it: `max-tokens` means the
-   * budget was spent — on a reasoning model, usually spent thinking — and wants
-   * a bigger `autonomy.advisor.maxTokens`, while `stop` means the model genuinely
-   * had nothing to say.
+   * Kept because an EMPTY answer is otherwise unexplainable, and the causes call
+   * for opposite responses from whoever reads it: `max-tokens` means the budget
+   * was spent — on a reasoning model, usually spent thinking — and wants a
+   * bigger `autonomy.advisor.maxTokens`; `timeout` means the consultation was
+   * silent for the whole inactivity bound and was cut off, which wants a bigger
+   * `autonomy.advisor.timeoutMs`; `stop` means the model genuinely had nothing
+   * to say. Absent when the stream never reported one — which, for an empty
+   * answer, is itself the unexplained case.
    */
   readonly finish?: string;
 }
@@ -79,20 +82,27 @@ export function modelAdvisor(llm: LlmPort, config: AdvisorConfig): AdvisorPort {
       // handed a pre-aborted signal has no event left to react to.
       if (signal?.aborted === true) return { text: '' };
       const control = new AbortController();
-      const abort = (): void => {
+      function onSignal(): void {
         control.abort();
-      };
-      signal?.addEventListener('abort', abort, { once: true });
+      }
+      signal?.addEventListener('abort', onSignal, { once: true });
 
       // The bound is on SILENCE, not on duration: every chunk pushes the
       // deadline out, so a consultation that has to read the project before it
       // can answer is never cut off for taking the time that took — while one
-      // that hangs still releases the delegation.
-      let idle = setTimeout(abort, config.timeoutMs);
+      // that hangs still releases the delegation. Whether the deadline itself
+      // fired is recorded separately from a caller's abort: the two read the
+      // same from the outside (no answer) but want opposite remedies.
+      let timedOut = false;
+      function onIdle(): void {
+        timedOut = true;
+        control.abort();
+      }
+      let idle = setTimeout(onIdle, config.timeoutMs);
       idle.unref?.();
       const progressed = (): void => {
         clearTimeout(idle);
-        idle = setTimeout(abort, config.timeoutMs);
+        idle = setTimeout(onIdle, config.timeoutMs);
         idle.unref?.();
       };
 
@@ -114,10 +124,13 @@ export function modelAdvisor(llm: LlmPort, config: AdvisorConfig): AdvisorPort {
         // a decision is what it concluded. The finish reason is kept anyway, so
         // an answer that never arrived can say why instead of reading as
         // indifference.
-        return await drain(stream, control.signal, progressed);
+        const reply = await drain(stream, control.signal, progressed);
+        return timedOut && reply.finish === undefined
+          ? { ...reply, finish: 'timeout' }
+          : reply;
       } finally {
         clearTimeout(idle);
-        signal?.removeEventListener('abort', abort);
+        signal?.removeEventListener('abort', onSignal);
       }
     },
   };

@@ -2,7 +2,10 @@
  * A delegation wired over the fake ports, for driving the round loop.
  */
 import { Config } from '../../src/config.ts';
-import type { Config as ResolvedConfig } from '../../src/config.ts';
+import type {
+  AutonomyConfig,
+  Config as ResolvedConfig,
+} from '../../src/config.ts';
 import type { AdviceRequest } from '../../src/domain/advice.ts';
 import { AccountStore } from '../../src/runtime/accounts.ts';
 import type {
@@ -122,6 +125,10 @@ export function buildDelegation(options: {
   inquiry?: InquiryPort;
   request?: Partial<DelegationRequest>;
   agentRoute?: { provider?: string; model?: string };
+  /** The composition's live default route; absent in the standard fixture. */
+  defaultRoute?: () => { provider?: string; model?: string } | undefined;
+  /** The live autonomy reader; absent falls back to the configured settings. */
+  autonomy?: () => AutonomyConfig;
 } = {}) {
   const config: ResolvedConfig = new Config(options.config ?? {});
   const paths = new BridgePaths('/state');
@@ -182,6 +189,10 @@ export function buildDelegation(options: {
     now: clock.now,
     ...options.advisor === undefined ? {} : { advisor: options.advisor },
     ...options.inquiry === undefined ? {} : { inquiry: options.inquiry },
+    ...options.defaultRoute === undefined
+      ? {}
+      : { defaultRoute: options.defaultRoute },
+    ...options.autonomy === undefined ? {} : { autonomy: options.autonomy },
   });
 
   return { delegation, directions, runs, hub, frames, process, config, clock };

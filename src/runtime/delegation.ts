@@ -362,7 +362,20 @@ export class Delegation {
           step = nextStep(this.facts(round, end));
           continue;
         }
-        if (answered === undefined) return step;
+        if (answered === undefined) {
+          // An unanswered QUESTION settles as needs_direction; an unanswered
+          // CONSULT is the one outcome that must not pass through — the policy
+          // chose the model because a route existed, and the route is read live,
+          // so between that choice and the request it can have vanished. Settling
+          // here would report the round as if nothing was ever due to be decided.
+          // Re-deriving asks the policy again with fresh facts: it either finds
+          // the route back (a flap), or falls back to whoever else can act.
+          if (step.kind === 'consult') {
+            step = nextStep(this.facts(round, end));
+            continue;
+          }
+          return step;
+        }
         step = answered;
       } finally {
         waiter.dispose();
@@ -427,8 +440,20 @@ export class Delegation {
   ): Promise<Continuation | undefined> {
     const advisor = this.deps.advisor;
     const target = this.target();
-    if (advisor === undefined || target === undefined) return undefined;
-    if (topic === 'continue') this.continueJudged = true;
+    if (advisor === undefined || target === undefined) {
+      // The policy would not have raised this consultation without a route, and
+      // the route is resolved live, so reaching here means it was lost between
+      // the decision and the request. Saying so is what makes the next step
+      // explainable: the caller re-derives it, and the fallback it lands on is
+      // a change of decider, which a record must be able to show was deliberate.
+      this.note(
+        'warn',
+        advisor === undefined
+          ? `autonomy.${topic}: the session model was not consulted because this deployment has no model service, so nothing could be decided automatically.`
+          : `autonomy.${topic}: no model route could be resolved when the decision was due, so the session model was not consulted. Set autonomy.advisor.provider and autonomy.advisor.model to name the route.`,
+      );
+      return undefined;
+    }
     if (topic === 'review') this.reviews += 1;
 
     const evidence = topic === 'review' ? await this.evidence() : undefined;
@@ -447,11 +472,18 @@ export class Delegation {
 
     try {
       const reply = await advisor.consult(request, target, signal);
+      // The round counts as judged only once the consultation actually ran: an
+      // interrupted one (a direction arriving) must not mark it, because the
+      // re-derivation that follows is a fresh look at the same round.
+      if (topic === 'continue') this.continueJudged = true;
       // An empty answer is the one outcome nobody can interpret from the
       // outside: the delegation just stops, looking as if DeepSeek shrugged. Say
       // why — and name a remedy only when there is one to name, because the
-      // plugin imposes no output budget of its own.
-      if (reply.text.trim().length === 0) {
+      // plugin imposes no output budget of its own. An answer that is empty
+      // because the consultation was INTERRUPTED is a different fact entirely —
+      // the interrupt itself is recorded as the decision that followed — so no
+      // note claims the model failed when it was never given the chance.
+      if (reply.text.trim().length === 0 && !signal.aborted) {
         const cap = this.autonomy.advisor.maxTokens;
         this.note(
           'warn',
@@ -459,6 +491,10 @@ export class Delegation {
             ? `autonomy.${topic}: ${target.provider}/${target.model} spent the configured output budget of ${
               String(cap)
             } tokens without answering — raise or remove autonomy.advisor.maxTokens (a reasoning model spends it thinking first)`
+            : reply.finish === 'timeout'
+            ? `autonomy.${topic}: ${target.provider}/${target.model} said nothing for the whole autonomy.advisor.timeoutMs of ${
+              String(this.autonomy.advisor.timeoutMs)
+            }ms and the consultation was cut off — raise autonomy.advisor.timeoutMs if the arbiter needs longer to think`
             : `autonomy.${topic}: ${target.provider}/${target.model} returned no answer${
               reply.finish === undefined ? '' : ` (stopped: ${reply.finish})`
             }`,

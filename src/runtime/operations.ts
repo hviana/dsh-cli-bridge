@@ -196,8 +196,16 @@ export class BridgeOperations {
       this.tracking(delegation, request.sessionId).delegation.state;
     const lastRun = previous.rounds.at(-1);
     if (previous.finishedAt === undefined || lastRun === undefined) {
+      // The two live states want different refusals. A delegation mid-question
+      // is waiting on the PERSON, and a model that "helps" by replying would be
+      // answering somebody else's question; one mid-round simply cannot be
+      // continued yet. Both are still the same error, so the caller does not
+      // retry a corrected call that could not exist.
+      const waiting = previous.status === 'awaiting-human';
       throw new BridgeError(
-        `delegation ${delegation} is still running`,
+        waiting
+          ? `delegation ${delegation} is waiting for the user to answer its question; only the user's answer resumes it — do not answer on their behalf`
+          : `delegation ${delegation} is still running`,
         'INVALID_REQUEST',
       );
     }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { UserQuestionsPort } from '../../src/runtime/inquiry.ts';
 import type { StreamFrame } from '../../src/shared/protocol.ts';
 import { buildOperations } from '../support/host.ts';
 import { until } from '../support/fakes.ts';
@@ -376,6 +377,68 @@ describe('continuing a delegation', () => {
       .rejects.toMatchObject({ code: 'INVALID_REQUEST' });
     // Nothing was started for it: the refusal came before any work.
     expect(operations.listDelegations()).toHaveLength(1);
+  });
+
+  it('refuses a live delegation that is waiting on the human, naming the one who may answer', async () => {
+    // The model must not answer a question that was put to the person — the
+    // answer would land as the person's, and the person would never be asked.
+    // The refusal says as much, so the caller knows why the reply bounced.
+    let release: (() => void) | undefined;
+    let questionAsked = false;
+    const questions: UserQuestionsPort = {
+      async ask(request) {
+        questionAsked = true;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return {
+          answers: [{
+            id: request.questions[0]?.id ?? '',
+            selected: [],
+            custom: 'keep it',
+          }],
+        };
+      },
+    };
+    const { operations } = build({
+      questions,
+      script: (argv) => {
+        if (argv.includes('--version')) return { stdout: ['1.0.0'] };
+        if (questionAsked) return { stdout: CLAUDE_DONE };
+        return {
+          stdout: [
+            '{"type":"result","is_error":false,"result":' +
+            '"Renamed it.\\nNEEDS_DIRECTION: Keep the alias?","session_id":"s1"}\n',
+          ],
+        };
+      },
+    });
+    const running = operations.startBatch({
+      tasks: [{ cli: 'claude', prompt: 'Port the parser.' }],
+      permission: 'workspace-write',
+      base: '/repo',
+      signal: never,
+    });
+    await until(() => questionAsked);
+    const waiting = operations.listDelegations().find((snapshot) =>
+      snapshot.status === 'awaiting-human'
+    );
+    expect(waiting).toBeDefined();
+
+    const refusal = await operations
+      .replyToDelegation(waiting!.id, 'carry on', { signal: never })
+      .catch((caught: unknown) => caught);
+    expect(refusal).toBeInstanceOf(Error);
+    const error = refusal as { code?: string; message?: string };
+    expect(error.code).toBe('INVALID_REQUEST');
+    expect(error.message).toContain(
+      'waiting for the user to answer its question',
+    );
+    expect(error.message).toContain('do not answer on their behalf');
+
+    // The refusal consumed nothing: the human's answer still resumes it.
+    release?.();
+    expect((await running)[0]?.snapshot.status).toBe('completed');
   });
 
   it('refuses one whose rounds retention has already dropped', async () => {

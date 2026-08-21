@@ -118,6 +118,12 @@ const DELEGATION = {
       description:
         'The model the delegate actually ran on, canonical. Absent when the delegate used its own default.',
     },
+    effort: {
+      type: 'string',
+      enum: [...EFFORT_LEVELS],
+      description:
+        'The effort the delegate ran with. Absent when it used its own default.',
+    },
     status: {
       type: 'string',
       enum: ['completed', 'needs_direction', 'failed', 'cancelled'],
@@ -278,7 +284,7 @@ function taskFields(config: Config) {
       type: 'string',
       enum: [...EFFORT_LEVELS],
       description:
-        'How hard the delegate thinks, lowest to highest: "low", "medium", "high", "xhigh", "max". Omit for the delegate\'s own default. Raise it for design, debugging and anything underspecified; "low" suits mechanical edits.',
+        'How hard the delegate thinks, lowest to highest: "low", "medium", "high", "xhigh", "max" — only these five, anything else is refused. Omit for the delegate\'s own default. Codex has no "max": there "max" runs as "xhigh". Raise it for design, debugging and anything underspecified; "low" suits mechanical edits.',
     },
   } as const satisfies ParameterSchemaSpec;
 }
@@ -922,6 +928,7 @@ function project(
       ...snapshot.notes.map((note) => ({ level: note.level, text: note.text })),
     ],
     ...snapshot.model === undefined ? {} : { model: snapshot.model },
+    ...snapshot.effort === undefined ? {} : { effort: snapshot.effort },
     ...autonomy === undefined ? {} : {
       autonomy: {
         decide: autonomy.decide,
@@ -981,10 +988,11 @@ function describe(value: DelegationResult): string {
     streamedBytes = 0,
   } = value;
   const spent = rounds === 1 ? '1 round' : `${String(rounds)} rounds`;
+  const effort = value.effort === undefined ? '' : `, effort ${value.effort}`;
   const body: string[] = [
     `${cli} delegation ${delegation} (${account}) ${status} in ${
       (durationMs / 1000).toFixed(1)
-    }s over ${spent}`,
+    }s over ${spent}${effort}`,
   ];
   switch (status) {
     case 'needs_direction':

@@ -284,6 +284,24 @@ describe('cli_delegate', () => {
     );
   });
 
+  it('carries the effort through to the run and the result', async () => {
+    // Effort is part of the outcome: the result reports which effort actually
+    // ran, and the CLI is spawned with the one the caller named.
+    const { tools, process } = mount();
+    const tool = tools.registered.get('cli_delegate')!;
+    const value = await tool.execute(
+      { prompt: 'x', effort: 'max' },
+      execution(),
+    ) as Record<string, unknown>;
+    expect(value['effort']).toBe('max');
+    expect(process.spawns.at(-1)?.spec.argv.join(' ')).toContain(
+      '--effort max',
+    );
+    expect(renderText(tool, { prompt: 'x', effort: 'max' }, value)).toContain(
+      ', effort max',
+    );
+  });
+
   it('passes an unknown model through, flagged beside the result', async () => {
     // Refusing would strand a model released after this plugin; the name runs
     // as written, and the diagnostic is what tells the caller which names DO

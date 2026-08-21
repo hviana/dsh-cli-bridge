@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_NEXT_STEPS_MARKER as NEXT } from '../../src/domain/markers.ts';
+import type { AdviceRequest } from '../../src/domain/advice.ts';
+import type { AdvisorPort } from '../../src/runtime/advisor.ts';
 import {
   buildDelegation,
   ScriptedAdvisor,
@@ -734,5 +736,104 @@ describe('an empty consultation with no configured ceiling', () => {
         text.includes('no answer') && text.includes('max-tokens')
       ),
     ).toBe(true);
+  });
+});
+
+describe('autonomy that loses its route mid-decision', () => {
+  // The route is read live on every decision, so between the policy choosing
+  // the model and the request itself it can vanish. The round must not settle
+  // as if nothing was due: the decision is re-derived with fresh facts.
+  //
+  // `reads <= 2` survives the preflight read and the policy's own read, so the
+  // loss happens exactly at the moment the consultation is about to run.
+  const flapAfter = (reads: { count: number }) => () => {
+    reads.count += 1;
+    return reads.count <= 2 ? ROUTE : undefined;
+  };
+
+  it('re-derives and finishes as policy, with the loss on the record', async () => {
+    const advisor = new ScriptedAdvisor(['']);
+    const { delegation } = buildDelegation({
+      advisor,
+      defaultRoute: flapAfter({ count: 0 }),
+      config: { autonomy: { continue: true } },
+    });
+    const settled = await delegation.run(never);
+
+    expect(settled.status).toBe('completed');
+    // The model was never actually asked: the consultation is abandoned the
+    // moment its route is gone, so no empty reply gets recorded as one.
+    expect(advisor.asked).toEqual([]);
+    expect(settled.decisions.at(-1)).toMatchObject({
+      source: 'policy',
+      kind: 'finish',
+    });
+    const note = settled.notes.find((entry) => entry.level === 'warn');
+    expect(note?.text).toContain('no model route could be resolved');
+  });
+
+  it('falls back to the human for a question the model lost its route to', async () => {
+    const human = new ScriptedHuman(['keep it']);
+    const advisor = new ScriptedAdvisor(['unused']);
+    const { delegation } = buildDelegation({
+      script: rounds(
+        'Renamed it.\nNEEDS_DIRECTION: Keep the alias?',
+        'Kept the alias.',
+      ),
+      advisor,
+      inquiry: human,
+      defaultRoute: flapAfter({ count: 0 }),
+      config: { autonomy: { decide: true } },
+    });
+    const settled = await delegation.run(never);
+
+    expect(human.asked).toHaveLength(1);
+    expect(human.asked[0]?.question).toContain('Keep the alias?');
+    expect(settled.decisions[0]).toMatchObject({ source: 'human' });
+    expect(settled.status).toBe('completed');
+    const note = settled.notes.find((entry) => entry.level === 'warn');
+    expect(note?.text).toContain('no model route could be resolved');
+  });
+
+  it('a direction that interrupts a consultation is the decision, not a model failure', async () => {
+    // The direction aborts the consultation, which then comes back empty — but
+    // an interrupted ask is not the model "returning no answer". The record
+    // shows the direction, and nothing may claim the model failed when it was
+    // never given the chance.
+    const asked: AdviceRequest[] = [];
+    const advisor: AdvisorPort = {
+      async consult(request, _target, signal) {
+        asked.push(request);
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted === true) resolve();
+          else {signal?.addEventListener('abort', () => resolve(), {
+              once: true,
+            });}
+        });
+        return { text: '' };
+      },
+    };
+    const { delegation, directions } = buildDelegation({
+      script: rounds(
+        'Renamed it.\nNEEDS_DIRECTION: Keep the alias?',
+        'Dropped the alias.',
+      ),
+      advisor,
+      agentRoute: ROUTE,
+      config: { autonomy: { decide: true } },
+    });
+    const running = delegation.run(never);
+    await until(() => asked.length === 1);
+    directions.add('d1', 'user', 'drop the alias');
+    const settled = await running;
+
+    expect(settled.status).toBe('completed');
+    expect(settled.decisions[0]).toMatchObject({
+      source: 'direction',
+      message: 'drop the alias',
+    });
+    expect(
+      settled.notes.some((note) => note.text.includes('returned no answer')),
+    ).toBe(false);
   });
 });

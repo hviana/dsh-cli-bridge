@@ -149,6 +149,37 @@ describe('consulting the model', () => {
     }
   });
 
+  it('marks a silence timeout distinctly from a caller abort', async () => {
+    // A consultation the deadline itself cut off and one the caller abandoned
+    // both come back empty, but they want opposite remedies — only the deadline
+    // means "the arbiter needs more time to think". The finish reason is what
+    // lets the loop say which one happened.
+    vi.useFakeTimers();
+    try {
+      const { llm } = fakeLlm([], { hold: true });
+      const consulting = modelAdvisor(llm, {
+        ...advisorConfig,
+        timeoutMs: 1000,
+      }).consult(request, target);
+      await vi.advanceTimersByTimeAsync(1001);
+      expect(await consulting).toEqual({ text: '', finish: 'timeout' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not claim a timeout for a caller abort', async () => {
+    const { llm } = fakeLlm([text('partial')], { hold: true });
+    const control = new AbortController();
+    const consulting = modelAdvisor(llm, advisorConfig).consult(
+      request,
+      target,
+      control.signal,
+    );
+    control.abort();
+    expect(await consulting).toEqual({ text: 'partial' });
+  });
+
   it('propagates a model failure, which the loop treats as no advice', async () => {
     const { llm } = fakeLlm([], { fail: new Error('no adapter') });
     await expect(modelAdvisor(llm, advisorConfig).consult(request, target))
