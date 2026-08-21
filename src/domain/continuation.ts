@@ -183,18 +183,34 @@ export function continueMessage(nextSteps: string): string {
   ].join('\n');
 }
 
-/** One answer from the session's model, already parsed. */
+/**
+ * One answer from the session's model, already parsed.
+ *
+ * `malformed` records that the reply was NOT the JSON the consultation asked
+ * for, and that the value beside it is therefore this module's conservative
+ * reading rather than something the arbiter actually said. The reading is still
+ * the right one — an unintelligible answer must never leave a delegation looping
+ * — but the caller has to be able to tell the two apart, because "the reviewer
+ * approved it" and "the reviewer replied with prose and was read as approval"
+ * look identical in the outcome and mean completely different things.
+ */
 export type Advice =
-  | { readonly topic: 'decide'; readonly answer: string }
+  | {
+    readonly topic: 'decide';
+    readonly answer: string;
+    readonly malformed?: boolean;
+  }
   | {
     readonly topic: 'continue';
     readonly finished: boolean;
     readonly instruction?: string;
+    readonly malformed?: boolean;
   }
   | {
     readonly topic: 'review';
     readonly accepted: boolean;
     readonly fixes?: string;
+    readonly malformed?: boolean;
   };
 
 /**

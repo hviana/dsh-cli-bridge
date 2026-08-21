@@ -180,7 +180,7 @@ describe.each(DELEGATES)('$cli', (delegate) => {
     );
   });
 
-  it('never states the next-steps marker while nothing may act on it', async () => {
+  it('states the same contract to either delegate, whatever autonomy is set to', async () => {
     const { delegation, process } = buildDelegation({
       request: { cli: delegate.cli },
       script: () => ({ stdout: delegate.transcript('Done.') }),
@@ -188,7 +188,7 @@ describe.each(DELEGATES)('$cli', (delegate) => {
     await delegation.run(new AbortController().signal);
     const prompt = promptOf(tasks(process.spawns, delegate)[0]);
     expect(prompt).toContain('NEEDS_DIRECTION:');
-    expect(prompt).not.toContain('NEXT_STEPS:');
+    expect(prompt).toContain('NEXT_STEPS:');
   });
 
   it('takes a user direction over any automatic decision', async () => {

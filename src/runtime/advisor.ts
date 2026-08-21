@@ -197,21 +197,36 @@ function oneShot(prompt: string): Message {
   };
 }
 
+/** Half-named route, as a session or the composition reports it. */
+interface RouteCandidate {
+  readonly provider?: string | undefined;
+  readonly model?: string | undefined;
+}
+
 /**
  * Resolve which route and model a delegation's decisions run on.
  *
- * Three sources, each half resolved independently, best-first:
+ * A route is a PAIR — the harness selects an adapter by provider and then a
+ * model on it — so the two halves are resolved together, not one at a time:
  *
- * 1. CONFIGURATION, for a deployment that wants a cheaper or stricter arbiter;
- * 2. the calling session's own route — the model that delegated the work is the
- *    one that arbitrates it;
- * 3. the composition's DEFAULT route.
+ * 1. the calling session's own route, when it names both halves — the model that
+ *    delegated the work is the one that arbitrates it;
+ * 2. otherwise the composition's DEFAULT route, when it names both halves.
  *
- * The third source is not a nicety. An agent created without an explicit model
- * carries empty options, which is the ordinary case, so the first two sources
- * are both blank in a standard deployment — and a target that cannot be named is
- * a target that cannot be consulted, which silently turned every autonomy switch
- * into a no-op that still asked the human.
+ * The second source is not a nicety. An agent created without an explicit model
+ * carries empty options, which is the ordinary case, so the first source is
+ * blank in a standard deployment — and a target that cannot be named is a target
+ * that cannot be consulted, which silently turned every autonomy switch into a
+ * no-op that still asked the human.
+ *
+ * CONFIGURATION then overrides either half, because naming one half in
+ * `autonomy.advisor` is a deployment saying "arbitrate on this provider" or "on
+ * this model" specifically. That is the one place halves may be mixed, and it is
+ * mixed on instruction. Taking the session's and the composition's halves
+ * independently is what must NOT happen: a provider from one and a model from
+ * the other compose a route neither source ever offered, and it fails at the
+ * request — which is exactly the intermittent, unexplainable autonomy a person
+ * cannot debug from the outside.
  * @param config - the advisor configuration.
  * @param session - the calling agent's own route and model, when it has one.
  * @param fallback - the composition's default route, when it has one.
@@ -219,36 +234,37 @@ function oneShot(prompt: string): Message {
  */
 export function adviceTarget(
   config: AdvisorConfig,
-  session:
-    | { provider?: string | undefined; model?: string | undefined }
-    | undefined,
-  fallback?:
-    | {
-      readonly provider?: string | undefined;
-      readonly model?: string | undefined;
-    }
-    | undefined,
+  session: RouteCandidate | undefined,
+  fallback?: RouteCandidate | undefined,
 ): AdviceTarget | undefined {
-  const provider = firstNamed(
-    config.provider,
-    session?.provider,
-    fallback?.provider,
-  );
-  const model = firstNamed(config.model, session?.model, fallback?.model);
+  const base = wholeRoute(session) ?? wholeRoute(fallback);
+  const provider = named(config.provider) ?? base?.provider;
+  const model = named(config.model) ?? base?.model;
   return provider === undefined || model === undefined
     ? undefined
     : { provider, model };
 }
 
 /**
- * The first candidate that actually names something.
- * @param candidates - the sources, best-first.
- * @returns the first non-empty value, or `undefined` when none names anything.
+ * One candidate, but only when it names a whole route.
+ * @param candidate - the source to read.
+ * @returns the pair, or `undefined` when either half is missing.
  */
-function firstNamed(
-  ...candidates: readonly (string | undefined)[]
-): string | undefined {
-  return candidates.find((candidate): candidate is string =>
-    candidate !== undefined && candidate.length > 0
-  );
+function wholeRoute(
+  candidate: RouteCandidate | undefined,
+): AdviceTarget | undefined {
+  const provider = named(candidate?.provider);
+  const model = named(candidate?.model);
+  return provider === undefined || model === undefined
+    ? undefined
+    : { provider, model };
+}
+
+/**
+ * A value only when it actually names something.
+ * @param value - the candidate.
+ * @returns the value, or `undefined` when it is absent or empty.
+ */
+function named(value: string | undefined): string | undefined {
+  return value === undefined || value.length === 0 ? undefined : value;
 }

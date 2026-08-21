@@ -68,6 +68,7 @@ const snapshot = (
   workspace: { mode: 'worktree', path: '/w/d1', merge: 'pending' },
   directions: [],
   decisions: [],
+  notes: [],
   startedAt: 0,
   finishedAt: 1,
 });

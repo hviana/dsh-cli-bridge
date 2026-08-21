@@ -129,7 +129,6 @@ export class BridgeOperations {
       config.delegates,
     );
     this.runs = new RunRegistry({
-      autonomy: () => this.autonomy,
       hub: this.hub,
       accounts: this.accounts,
       toolchain: this.toolchain,

@@ -20,7 +20,9 @@ import type {
   ToolchainStatus,
 } from '../shared/protocol.ts';
 import { CLI_IDS } from '../shared/protocol.ts';
+import type { Config } from '../config.ts';
 import { adapterFor } from '../domain/adapters/index.ts';
+import { modelLines } from '../domain/models.ts';
 import { describeAuth } from '../runtime/accounts.ts';
 import type { BridgeOperations } from '../runtime/operations.ts';
 
@@ -30,12 +32,22 @@ export type ParsedCliCommand =
   | { readonly kind: 'status' }
   /** Run one control operation. */
   | { readonly kind: 'control'; readonly request: ControlRequest }
+  /** List the models a delegate accepts; every delegate when none is named. */
+  | { readonly kind: 'models'; readonly cli?: CliId }
+  /**
+   * Print text and nothing else — help, a listing.
+   *
+   * Separate from `error` because `/cli help` is not a failure, and rendering it
+   * as one made asking for help look like doing something wrong.
+   */
+  | { readonly kind: 'text'; readonly message: string }
   /** The line did not parse; the text is shown to the user verbatim. */
   | { readonly kind: 'error'; readonly message: string };
 
 /** The command's own help, shown for `/cli help` and for a line that does not parse. */
 export const CLI_COMMAND_HELP = [
   '/cli                                  see Claude Code & Codex, your accounts, and recent work',
+  '/cli models [claude|codex]            see the models you can ask for, and what each is for',
   '/cli update <claude|codex>            get the latest Claude Code or Codex',
   '/cli login <claude|codex> <account>   sign in to an account — a box opens to type the code',
   '/cli account add <cli> <id>           add an account (log in, or --api-key for a key)',
@@ -45,6 +57,9 @@ export const CLI_COMMAND_HELP = [
   '/cli stop <task-id>                   stop a task and everything it had left',
   '/cli cancel <run-id>                  stop something that is still running',
   '/cli auto <decide|continue|review> <on|off>   let DeepSeek answer, continue, and review by itself',
+  '',
+  'auto needs a model to consult. If /cli says there is no route, the switches',
+  'stay inert and every question still comes to you.',
 ].join('\n');
 
 /** The automatic decisions `/cli auto` can switch. */
@@ -66,7 +81,16 @@ export function parseCliCommand(rawInput: string): ParsedCliCommand {
 
   switch (verb) {
     case 'help':
-      return { kind: 'error', message: CLI_COMMAND_HELP };
+      return { kind: 'text', message: CLI_COMMAND_HELP };
+    case 'models': {
+      const cli = readCli(rest[0]);
+      return rest[0] !== undefined && cli === undefined
+        ? {
+          kind: 'error',
+          message: `usage: /cli models [${CLI_IDS.join('|')}]`,
+        }
+        : { kind: 'models', ...cli === undefined ? {} : { cli } };
+    }
     case 'install':
     case 'update': {
       const cli = readCli(rest[0]);
@@ -248,6 +272,15 @@ export function registerCommand(
           if (parsed.kind === 'error') {
             return { kind: 'error', text: parsed.message };
           }
+          if (parsed.kind === 'text') {
+            return { kind: 'success', text: parsed.message };
+          }
+          if (parsed.kind === 'models') {
+            return {
+              kind: 'success',
+              text: renderModels(operations.config, parsed.cli),
+            };
+          }
           if (parsed.kind === 'status') {
             return {
               kind: 'success',
@@ -281,6 +314,39 @@ function toolchainSourceText(source: ToolchainStatus['source']): string {
     default:
       return 'ready';
   }
+}
+
+/**
+ * Render the models a delegate accepts.
+ *
+ * Offered as its own command because "which models can I ask for" is a question
+ * both a person and a model have constantly, and the honest answer is a short
+ * list nobody should have to discover by trying names until one works.
+ * @param config - the resolved config, for each delegate's extra model ids.
+ * @param cli - one delegate, or every delegate when absent.
+ * @returns the listing.
+ */
+export function renderModels(config: Config, cli?: CliId): string {
+  const wanted = cli === undefined ? CLI_IDS : [cli];
+  const lines: string[] = [];
+  for (const id of wanted) {
+    const { defaultModel, extraModels } = config.delegates[id];
+    lines.push(
+      `${adapterFor(id).displayName} — ask for any of these, or leave it out:`,
+      ...modelLines(id, extraModels).map((line) => `  ${line}`),
+      `  (no model named: ${
+        defaultModel.length === 0
+          ? `whatever ${adapterFor(id).displayName} picks itself`
+          : defaultModel
+      })`,
+      '',
+    );
+  }
+  lines.push(
+    'Short names and different punctuation work too — "opus", "Opus 5" and',
+    '"claude-opus-5" all mean the same model.',
+  );
+  return lines.join('\n');
 }
 
 export function renderState(state: BridgeState): string {
@@ -338,6 +404,11 @@ export function renderState(state: BridgeState): string {
       }
       if (delegation.question !== undefined) {
         lines.push(`      waiting on you: ${delegation.question.question}`);
+      }
+      // The same facts the caller is handed: a setting that could not act is
+      // worth as much to the person who switched it on as to the model.
+      for (const note of delegation.notes) {
+        if (note.level !== 'info') lines.push(`      ⚠ ${note.text}`);
       }
       if (delegation.workspace.mode === 'worktree') {
         const detail = delegation.workspace.detail === undefined

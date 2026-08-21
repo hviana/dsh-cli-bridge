@@ -14,10 +14,12 @@
  */
 import type {
   Activity,
+  AutonomyReport,
   BatchId,
   CliId,
   DecisionRecord,
   DelegationId,
+  DelegationNote,
   DelegationSnapshot,
   DelegationStatus,
   EffortLevel,
@@ -35,7 +37,11 @@ import { applyAdvice, applyAnswer, nextStep } from '../domain/continuation.ts';
 import { boundHead, oneLineLabel } from '../domain/text.ts';
 import type { AutonomyConfig, Config } from '../config.ts';
 import { AMBIENT_ACCOUNT_ID, bareAccountId } from './accounts.ts';
-import { adviceTarget, type AdvisorPort } from './advisor.ts';
+import {
+  type AdviceTarget,
+  adviceTarget,
+  type AdvisorPort,
+} from './advisor.ts';
 import type { StreamHub } from './channel.ts';
 import type { DirectionLedger } from './directions.ts';
 import { describeError } from './errors.ts';
@@ -150,6 +156,7 @@ export class Delegation {
       workspace: request.workspace,
       directions: [],
       decisions: [],
+      notes: [],
       startedAt: deps.now(),
       ...request.parent === undefined ? {} : { parent: request.parent },
       ...request.model === undefined ? {} : { model: request.model },
@@ -175,6 +182,7 @@ export class Delegation {
    */
   async run(signal: AbortSignal): Promise<DelegationSnapshot> {
     const collect = this.watchFiles();
+    this.preflight();
     try {
       let message = this.request.task;
       // Rounds are sequential by definition: each one is decided by the last.
@@ -201,6 +209,44 @@ export class Delegation {
     } finally {
       collect();
     }
+  }
+
+  /**
+   * Say, before the first round, whether autonomy can actually act.
+   *
+   * This is the difference between autonomy that "sometimes works" and autonomy
+   * a person can reason about. Every switch needs two things the switch itself
+   * cannot provide — a model service in the composition, and a route to name on
+   * it — and when either is missing the delegation still runs, still asks the
+   * human, and still finishes, so nothing about the outcome reveals that the
+   * setting was inert. Said once, at the start, on the record, and in the result.
+   */
+  private preflight(): void {
+    const autonomy = this.autonomy;
+    const on = (['decide', 'continue', 'review'] as const).filter((name) =>
+      autonomy[name]
+    );
+    if (on.length === 0) return;
+    const switches = on.map((name) => `autonomy.${name}`).join(', ');
+    if (this.deps.advisor === undefined) {
+      this.note(
+        'warn',
+        `${switches} is on, but this deployment has no model service to consult, so nothing can be decided automatically: a delegate's question goes to the user and the work stops when the delegate says it is done.`,
+      );
+      return;
+    }
+    const target = this.target();
+    if (target === undefined) {
+      this.note(
+        'warn',
+        `${switches} is on, but no model route could be resolved, so nothing can be decided automatically: a delegate's question goes to the user and the work stops when the delegate says it is done. Set autonomy.advisor.provider and autonomy.advisor.model to name the route.`,
+      );
+      return;
+    }
+    this.note(
+      'info',
+      `${switches} is on and decisions will be put to ${target.provider}/${target.model}.`,
+    );
   }
 
   /**
@@ -380,11 +426,7 @@ export class Delegation {
     signal: AbortSignal,
   ): Promise<Continuation | undefined> {
     const advisor = this.deps.advisor;
-    const target = adviceTarget(
-      this.autonomy.advisor,
-      this.request.agent?.options,
-      this.deps.defaultRoute?.(),
-    );
+    const target = this.target();
     if (advisor === undefined || target === undefined) return undefined;
     if (topic === 'continue') this.continueJudged = true;
     if (topic === 'review') this.reviews += 1;
@@ -422,10 +464,21 @@ export class Delegation {
             }`,
         );
       }
-      return applyAdvice(
-        parseAdvice(topic, reply.text),
-        this.facts(round, end),
-      );
+      const advice = parseAdvice(topic, reply.text);
+      // A reply that was not the asked-for JSON is read CONSERVATIVELY —
+      // finished, accepted — and that is the right reading, but it is also
+      // indistinguishable from an arbiter that genuinely approved the work. Say
+      // which one happened; a review that quietly never reviewed anything is the
+      // hardest autonomy failure to spot from the outside.
+      if (advice.malformed === true && reply.text.trim().length > 0) {
+        this.note(
+          'warn',
+          `autonomy.${topic}: ${target.provider}/${target.model} answered with something other than the requested JSON, so the reply was read as "no change needed" — ${
+            oneLineLabel(reply.text, 200)
+          }`,
+        );
+      }
+      return applyAdvice(advice, this.facts(round, end));
     } catch (error) {
       // A model that cannot be reached must not stall or loop the delegation.
       this.note(
@@ -471,14 +524,25 @@ export class Delegation {
       autonomy: this.autonomy,
       canAskHuman: this.deps.inquiry !== undefined &&
         this.deps.config.inquiry.enabled,
-      canAdvise: this.deps.advisor !== undefined &&
-        adviceTarget(
-            this.autonomy.advisor,
-            this.request.agent?.options,
-            this.deps.defaultRoute?.(),
-          ) !== undefined,
+      canAdvise: this.deps.advisor !== undefined && this.target() !== undefined,
       ...pending === undefined ? {} : { pendingDirection: pending },
     };
+  }
+
+  /**
+   * The route this delegation's decisions would run on right now.
+   *
+   * Resolved fresh on every read rather than captured: the composition's default
+   * route is read live, and a person may pick a model while the delegation is
+   * already spending rounds.
+   * @returns the route, or `undefined` when none can be named.
+   */
+  private target(): AdviceTarget | undefined {
+    return adviceTarget(
+      this.autonomy.advisor,
+      this.request.agent?.options,
+      this.deps.defaultRoute?.(),
+    );
   }
 
   /** Record one decision, consuming the direction that drove it. */
@@ -529,8 +593,29 @@ export class Delegation {
       end: settled,
       finishedAt: this.deps.now(),
       directions: this.deps.directions.all(this.request.id),
+      autonomy: this.report(),
     };
     this.publish();
+  }
+
+  /**
+   * What autonomy was in force as the delegation ended.
+   *
+   * Reported with the outcome rather than left implicit, so a caller reading a
+   * delegation that behaved unexpectedly can see the three switches and the
+   * route in the same place as the result — instead of inferring them from
+   * whether it was asked a question.
+   * @returns the switches, and the route decisions ran on when there was one.
+   */
+  private report(): AutonomyReport {
+    const autonomy = this.autonomy;
+    const target = this.deps.advisor === undefined ? undefined : this.target();
+    return {
+      decide: autonomy.decide,
+      continue: autonomy.continue,
+      review: autonomy.review,
+      ...target === undefined ? {} : { advisor: target },
+    };
   }
 
   /**
@@ -576,12 +661,27 @@ export class Delegation {
     return dispose;
   }
 
-  /** Publish a notice on the delegation's own stream. */
-  private note(level: 'info' | 'warn' | 'error', text: string): void {
+  /**
+   * Record one thing that happened around the rounds, and announce it.
+   *
+   * Both halves matter. The stream is what a person watching sees as it
+   * happens; the snapshot is what the CALLER is handed afterwards, and a warning
+   * that only ever reached the browser is a warning the model deciding what to do
+   * next never saw.
+   * @param level - how much it matters.
+   * @param text - one self-contained sentence.
+   */
+  private note(level: DelegationNote['level'], text: string): void {
+    const note: DelegationNote = { level, text, at: this.deps.now() };
+    this.snapshot = {
+      ...this.snapshot,
+      notes: [...this.snapshot.notes, note],
+    };
     this.deps.hub.publish(this.request.id, {
       kind: 'activity',
       activity: { type: 'notice', level, text },
     });
+    this.publish();
   }
 
   /** Announce the current snapshot on the delegation's own stream. */

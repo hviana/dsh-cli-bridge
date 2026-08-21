@@ -165,6 +165,7 @@ describe('describeDelegation', () => {
     workspace: { mode: 'inline', path: '/repo', merge: 'not-required' },
     directions: [],
     decisions: [],
+    notes: [],
     startedAt: 1000,
     finishedAt: 5200,
   } as const satisfies DelegationSnapshot;

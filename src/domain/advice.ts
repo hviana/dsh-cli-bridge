@@ -167,8 +167,12 @@ export function parseAdvice(topic: AdviceTopic, text: string): Advice {
   const object = firstJsonObject(text);
   switch (topic) {
     case 'decide': {
-      const answer = readString(object, 'answer') ?? text.trim();
-      return { topic, answer };
+      const answer = readString(object, 'answer');
+      return answer === undefined
+        // Prose is still usable as an answer — it is sent to the delegate
+        // verbatim — but it was not what the consultation asked for.
+        ? { topic, answer: text.trim(), malformed: true }
+        : { topic, answer };
     }
     case 'continue': {
       const finished = readBoolean(object, 'finished');
@@ -176,7 +180,9 @@ export function parseAdvice(topic: AdviceTopic, text: string): Advice {
       if (finished === false && instruction !== undefined) {
         return { topic, finished: false, instruction };
       }
-      return { topic, finished: true };
+      return finished === undefined
+        ? { topic, finished: true, malformed: true }
+        : { topic, finished: true };
     }
     case 'review': {
       const accepted = readBoolean(object, 'accepted');
@@ -184,7 +190,9 @@ export function parseAdvice(topic: AdviceTopic, text: string): Advice {
       if (accepted === false && fixes !== undefined) {
         return { topic, accepted: false, fixes };
       }
-      return { topic, accepted: true };
+      return accepted === undefined
+        ? { topic, accepted: true, malformed: true }
+        : { topic, accepted: true };
     }
   }
 }

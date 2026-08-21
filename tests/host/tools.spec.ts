@@ -243,17 +243,74 @@ describe('cli_delegate', () => {
     });
   });
 
-  it('reports an account that does not exist as a failed delegation, not a thrown call', async () => {
-    // One bad account in a batch must not sink the delegations beside it, so an
-    // unusable account is an outcome like any other failure.
-    const { tools } = mount();
-    const value = await tools.registered.get('cli_delegate')!
-      .execute({ prompt: 'x', account: 'ghost' }, execution());
-    expect(value).toMatchObject({
-      status: 'failed',
-      rounds: 0,
-      error: 'no claude account named "ghost"',
+  it('refuses an account that does not exist, naming the ones that do', async () => {
+    // Checked before anything starts, so the refusal costs nothing and can list
+    // the accepted ids — which is what makes the caller's second attempt right
+    // rather than another guess.
+    const { tools, operations } = mount();
+    await operations.accounts.add({
+      cli: 'claude',
+      id: 'work',
+      auth: 'session',
     });
+    await expect(
+      tools.registered.get('cli_delegate')!
+        .execute({ prompt: 'x', account: 'ghost' }, execution()),
+    ).rejects.toThrow(
+      /no claude account named "ghost".*ambient, work \(default\)/su,
+    );
+  });
+
+  it('refuses a task with nothing in it', async () => {
+    const { tools } = mount();
+    await expect(
+      tools.registered.get('cli_delegate')!
+        .execute({ prompt: '   ' }, execution()),
+    ).rejects.toThrow(/prompt is empty/u);
+  });
+
+  it('canonicalizes a model alias to the id the CLI accepts', async () => {
+    // The caller said "opus"; the result and the spawned CLI both carry
+    // "claude-opus-5", because "opus-5" is a name the CLI rejects outright.
+    const { tools, process } = mount();
+    const value = await tools.registered.get('cli_delegate')!
+      .execute({ prompt: 'x', model: 'opus' }, execution()) as Record<
+        string,
+        unknown
+      >;
+    expect(value['model']).toBe('claude-opus-5');
+    expect(process.spawns.at(-1)?.spec.argv.join(' ')).toContain(
+      '--model claude-opus-5',
+    );
+  });
+
+  it('passes an unknown model through, flagged beside the result', async () => {
+    // Refusing would strand a model released after this plugin; the name runs
+    // as written, and the diagnostic is what tells the caller which names DO
+    // work — in the value and in the rendered text alike.
+    const { tools, process } = mount();
+    const tool = tools.registered.get('cli_delegate')!;
+    const value = await tool.execute(
+      { prompt: 'x', model: 'opus-9' },
+      execution(),
+    ) as Record<string, unknown>;
+    expect(value['model']).toBe('opus-9');
+    expect(process.spawns.at(-1)?.spec.argv.join(' ')).toContain(
+      '--model opus-9',
+    );
+    const diagnostics = value['diagnostics'] as {
+      level: string;
+      text: string;
+    }[];
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ level: 'warn' });
+    expect(diagnostics[0]?.text).toContain(
+      '"opus-9" is not a model claude is known to accept',
+    );
+    expect(diagnostics[0]?.text).toContain('claude-opus-5');
+    expect(renderText(tool, { prompt: 'x', model: 'opus-9' }, value)).toContain(
+      'Worth knowing:',
+    );
   });
 
   it('cancels the delegate when the tool call itself is cancelled', async () => {
@@ -354,7 +411,7 @@ describe('cli_delegate', () => {
         nextSteps: 'wire the CLI',
       }),
     )
-      .toContain('It says the remaining work is: wire the CLI');
+      .toContain('It says this work still remains: wire the CLI');
   });
 
   it('scales the streamed byte count it kept out of context', () => {
@@ -414,6 +471,23 @@ describe('cli_delegate_all', () => {
       'work',
       'ambient',
     ]);
+  });
+
+  it('flags an unknown model on its own task, not on the batch', async () => {
+    const { tools } = mount();
+    const value = await tools.registered.get('cli_delegate_all')!.execute({
+      tasks: [
+        { prompt: 'Build the auth stack.' },
+        { prompt: 'Build the BI stack.', model: 'terra-9' },
+      ],
+    }, execution()) as {
+      delegations: { model?: string; diagnostics?: { text: string }[] }[];
+    };
+    expect(value.delegations[0]?.diagnostics).toEqual([]);
+    expect(value.delegations[1]?.model).toBe('terra-9');
+    expect(value.delegations[1]?.diagnostics?.[0]?.text).toContain(
+      '"terra-9" is not a model claude is known to accept',
+    );
   });
 
   it('refuses an empty list rather than reporting a batch that did nothing', async () => {
@@ -494,6 +568,26 @@ describe('cli_reply', () => {
     await expect(mount().tools.registered.get('cli_reply')!
       .execute({ delegation: 'd9', message: 'hi' }, execution()))
       .rejects.toMatchObject({ code: 'UNKNOWN_RUN' });
+  });
+
+  it('names the delegations that do exist when the id does not', async () => {
+    // A wrong id is the one mistake a caller cannot correct from the message
+    // alone; the refusal carries the continuable ids so the retry is right.
+    const { tools } = mount();
+    const first = await tools.registered.get('cli_delegate')!
+      .execute({ prompt: 'x' }, execution()) as { delegation: string };
+    await expect(tools.registered.get('cli_reply')!
+      .execute({ delegation: 'd9', message: 'hi' }, execution()))
+      .rejects.toMatchObject({
+        code: 'UNKNOWN_RUN',
+        message: expect.stringContaining('Tasks you can continue'),
+      });
+    const refusal = await tools.registered.get('cli_reply')!
+      .execute({ delegation: 'd9', message: 'hi' }, execution())
+      .catch((error: unknown) =>
+        String((error as { message?: string }).message)
+      );
+    expect(refusal).toContain(`${first.delegation} (completed)`);
   });
 });
 
@@ -704,8 +798,11 @@ describe('cli_accounts', () => {
   it('requires the arguments each operation needs', async () => {
     const { tools, operations } = mount();
     const tool = tools.registered.get('cli_accounts')!;
+    // The refusal states the call that would work, not the field that is absent.
     await expect(tool.execute({ op: 'add', id: 'work' }, execution())).rejects
-      .toThrow(/cli is required/u);
+      .toThrow(/cli_accounts\(op:"add"\) also needs cli/u);
+    await expect(tool.execute({ op: 'remove', cli: 'claude' }, execution()))
+      .rejects.toThrow(/also needs id/u);
     // Adding without an id mints one instead of demanding it.
     await tool.execute({ op: 'add', cli: 'claude' }, execution());
     expect(
@@ -743,7 +840,7 @@ describe('cli_toolchain', () => {
         execution(),
       ),
     )
-      .rejects.toThrow(/cli is required/u);
+      .rejects.toThrow(/cli_toolchain\(op:"install"\) also needs cli/u);
   });
 
   it('surfaces an install failure', async () => {

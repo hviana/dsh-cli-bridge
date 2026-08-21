@@ -3,8 +3,10 @@ import {
   CLI_COMMAND_HELP,
   parseCliCommand,
   registerCommand,
+  renderModels,
   renderState,
 } from '../../src/host/command.ts';
+import { Config } from '../../src/config.ts';
 import type {
   CommandDefinition,
   CommandInvocation,
@@ -17,9 +19,23 @@ describe('parseCliCommand', () => {
   });
 
   it('prints help on request', () => {
+    // Help is an answer, not a failure: rendering it as an error made asking
+    // for it look like doing something wrong.
     expect(parseCliCommand('help')).toEqual({
-      kind: 'error',
+      kind: 'text',
       message: CLI_COMMAND_HELP,
+    });
+  });
+
+  it('lists the models of one delegate, or every delegate', () => {
+    expect(parseCliCommand('models')).toEqual({ kind: 'models' });
+    expect(parseCliCommand('models claude')).toEqual({
+      kind: 'models',
+      cli: 'claude',
+    });
+    expect(parseCliCommand('models codex')).toEqual({
+      kind: 'models',
+      cli: 'codex',
     });
   });
 
@@ -167,6 +183,7 @@ describe('parseCliCommand', () => {
       'account rename claude work',
       /unknown account action/u,
     ],
+    ['an unknown delegate for models', 'models gemini', /usage: \/cli models/u],
     [
       'an account action without an id',
       'account remove claude',
@@ -176,6 +193,25 @@ describe('parseCliCommand', () => {
     const parsed = parseCliCommand(line);
     expect(parsed.kind).toBe('error');
     expect(parsed.kind === 'error' ? parsed.message : '').toMatch(message);
+  });
+});
+
+describe('renderModels', () => {
+  it('names the configured default and the deployment’s own ids', () => {
+    const config = new Config({
+      delegates: {
+        claude: {
+          defaultModel: 'claude-sonnet-5',
+          extraModels: ['deepseek-chat'],
+        },
+      },
+    });
+    const text = renderModels(config, 'claude');
+    expect(text).toContain('claude-opus-5');
+    expect(text).toContain('deepseek-chat');
+    expect(text).toContain('(no model named: claude-sonnet-5)');
+    // One delegate's listing stays one delegate's listing.
+    expect(text).not.toContain('gpt-5.6');
   });
 });
 
@@ -242,6 +278,7 @@ describe('renderState', () => {
           at: 0,
         }],
         decisions: [],
+        notes: [],
         question: {
           run: 'claude-1',
           question: 'keep the alias?',
@@ -302,6 +339,15 @@ describe('the /cli command', () => {
     const result = await definition!.handler(invocation(''));
     expect(result.kind).toBe('success');
     expect(result.kind === 'success' ? result.text : '').toContain('Accounts');
+  });
+
+  it('answers /cli models with the ids the delegates accept', async () => {
+    const { definition } = mount();
+    const result = await definition!.handler(invocation('models'));
+    expect(result.kind).toBe('success');
+    const text = result.kind === 'success' ? result.text : '';
+    expect(text).toContain('claude-opus-5');
+    expect(text).toContain('gpt-5.6-sol');
   });
 
   it('runs a control operation and answers with the refreshed state', async () => {

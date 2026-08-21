@@ -35,6 +35,15 @@ export interface DelegateConfig {
   readonly executable: string;
   /** Arguments appended verbatim to every task run of this delegate. */
   readonly extraArgs: readonly string[];
+  /**
+   * Model ids this deployment accepts beside the ones the plugin ships.
+   *
+   * The built-in catalog in `domain/models.ts` is a snapshot, and both vendors
+   * release faster than this plugin does. An id listed here is stated in every
+   * surface that offers the choice and counts as recognized, so a model newer
+   * than the plugin is offered by name instead of only being tolerated.
+   */
+  readonly extraModels: readonly string[];
 }
 
 /** How the delegate CLIs are obtained and kept current. */
@@ -193,7 +202,12 @@ export interface DirectionConfig {
   readonly marker: string;
   /**
    * Marker line the delegate ends its final message with to declare remaining
-   * work. Stated in the contract only while `autonomy.continue` can act on it.
+   * work.
+   *
+   * Always stated, and always parsed: what the declaration is worth does not
+   * depend on whether `autonomy.continue` happens to be on, and asking for it
+   * only sometimes made the same task report differently from one run to the
+   * next. Autonomy decides whether to act on it; the caller is told either way.
    */
   readonly nextStepsMarker: string;
   /** Whether to state the contract in the delegated prompt. Off means runs never ask. */
@@ -228,6 +242,7 @@ const delegateSchema = (): Schema<DelegateConfig> =>
     defaultEffort: Schema.union(['', ...EFFORT_LEVELS]).default(''),
     executable: Schema.string().default(''),
     extraArgs: Schema.array(Schema.string()).default([]),
+    extraModels: Schema.array(Schema.string()).default([]),
   }) as unknown as Schema<DelegateConfig>;
 
 /**

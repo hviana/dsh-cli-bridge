@@ -312,6 +312,39 @@ export interface DirectionRecord {
   readonly consumedRound?: number;
 }
 
+/**
+ * One thing that happened AROUND a delegation, rather than inside a round.
+ *
+ * Autonomy is the reason this exists. A switch that is on but cannot act, an
+ * arbiter that answered nothing, a model name nobody recognized — each of those
+ * changes the outcome without appearing in any round's transcript, and a reader
+ * who is not told simply sees a delegation that behaved differently this time
+ * for no visible reason. Notes are carried on the snapshot AND handed to the
+ * caller, because "it sometimes works and I cannot tell why" is a bug in the
+ * reporting, not in the luck.
+ */
+export interface DelegationNote {
+  readonly level: 'info' | 'warn' | 'error';
+  /** One self-contained sentence: what happened, and what would change it. */
+  readonly text: string;
+  readonly at: number;
+}
+
+/**
+ * What DeepSeek was allowed to decide for one delegation, and where.
+ *
+ * Reported with the outcome so the three switches are never something a caller
+ * has to infer from behaviour. `advisor` absent while any switch is on is the
+ * single most important fact this carries: the switch was on and could not act.
+ */
+export interface AutonomyReport {
+  readonly decide: boolean;
+  readonly continue: boolean;
+  readonly review: boolean;
+  /** The route decisions ran on; absent when none could be resolved. */
+  readonly advisor?: AdviceRoute;
+}
+
 /** A delegate question waiting on the human. */
 export interface PendingQuestion {
   readonly run: RunId;
@@ -384,6 +417,14 @@ export interface DelegationSnapshot {
   readonly workspace: WorkspaceState;
   readonly directions: readonly DirectionRecord[];
   readonly decisions: readonly DecisionRecord[];
+  /**
+   * Everything that happened around the rounds and would otherwise be invisible:
+   * autonomy that could not act, an arbiter that said nothing, an unrecognized
+   * model name. Empty in the ordinary case.
+   */
+  readonly notes: readonly DelegationNote[];
+  /** What DeepSeek was allowed to decide, and where; set once the delegation settles. */
+  readonly autonomy?: AutonomyReport;
   /** The question currently waiting on the human; absent otherwise. */
   readonly question?: PendingQuestion;
   /** Terminal facts, once it has settled. */

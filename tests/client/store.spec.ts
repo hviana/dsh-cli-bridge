@@ -90,6 +90,7 @@ const delegation: DelegationSnapshot = {
   workspace: { mode: 'inline', path: '/repo', merge: 'not-required' },
   directions: [],
   decisions: [],
+  notes: [],
   startedAt: 1000,
   callId: 'call-7',
 };

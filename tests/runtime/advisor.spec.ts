@@ -233,17 +233,37 @@ describe('adviceTarget: where a decision runs', () => {
     ).toEqual({ provider: 'configured', model: 'configured-model' });
   });
 
-  it('completes one half from a later source', () => {
+  it('lets configuration override one half of a whole route', () => {
+    // Naming one half in `autonomy.advisor` is a deployment instructing this
+    // explicitly — "arbitrate on that provider", "on that model" — so it is the
+    // one place halves may be combined.
+    const base = { provider: 'session-route', model: 'session-model' };
+    expect(adviceTarget({ ...none, model: 'cheap' }, base)).toEqual({
+      provider: 'session-route',
+      model: 'cheap',
+    });
+    expect(adviceTarget({ ...none, provider: 'other' }, base)).toEqual({
+      provider: 'other',
+      model: 'session-model',
+    });
+  });
+
+  it('never combines halves of two different sources', () => {
+    // The session naming only a provider and the composition naming only a
+    // model used to compose `session-route/fallback-model` — a route neither
+    // source ever offered, which fails at the request and reads from outside as
+    // autonomy that works only sometimes.
     expect(
-      adviceTarget({ ...none, model: 'configured-model' }, {
-        provider: 'session-route',
+      adviceTarget(none, { provider: 'session-route' }, {
+        model: 'fallback-model',
       }),
-    ).toEqual({ provider: 'session-route', model: 'configured-model' });
+    ).toBeUndefined();
     expect(
-      adviceTarget(none, { model: 'session-model' }, {
+      adviceTarget(none, { provider: 'session-route' }, {
         provider: 'fallback-route',
+        model: 'fallback-model',
       }),
-    ).toEqual({ provider: 'fallback-route', model: 'session-model' });
+    ).toEqual({ provider: 'fallback-route', model: 'fallback-model' });
   });
 
   it('names nothing when no source does', () => {

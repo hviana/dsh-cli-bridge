@@ -53,14 +53,19 @@ describe('the default: one round, nobody consulted', () => {
     expect(mine.at(-1)).toMatchObject({ delegation: { status: 'completed' } });
   });
 
-  it('does not state the next-steps marker while nothing would act on it', async () => {
+  it('states both markers whatever autonomy is set to', async () => {
+    // Asking for the declaration only while `autonomy.continue` happened to be
+    // on made the same task report differently from one run to the next, for a
+    // reason the delegate cannot see. Both markers are always asked for and
+    // always parsed; autonomy decides whether to ACT on the declaration, and
+    // the caller is told about it either way.
     const { delegation, process } = buildDelegation();
     await delegation.run(never);
     const stdin = process.spawns.at(-1)?.spec.stdio.stdin;
     expect(stdin).toMatchObject({
       data: expect.stringContaining('NEEDS_DIRECTION:'),
     });
-    expect(stdin).not.toMatchObject({ data: expect.stringContaining(NEXT) });
+    expect(stdin).toMatchObject({ data: expect.stringContaining(NEXT) });
   });
 });
 
@@ -595,6 +600,114 @@ describe('an empty consultation', () => {
         text.includes('no answer')
       ),
     ).toBe(true);
+  });
+});
+
+describe('autonomy that cannot act says so before the first round', () => {
+  it('warns when no model service exists to consult', async () => {
+    // Autonomy "sometimes working" was this case in disguise: with no advisor in
+    // the composition the delegation still runs, still completes, and still
+    // reports — nothing in the outcome showed that the switch was inert. The
+    // warning is on the record before round one, in the result and on the stream.
+    const { delegation, frames } = buildDelegation({
+      config: { autonomy: { decide: true } },
+    });
+    const settled = await delegation.run(never);
+
+    expect(settled.status).toBe('completed');
+    const note = settled.notes.find((entry) => entry.level === 'warn');
+    expect(note?.text).toContain('autonomy.decide is on');
+    expect(note?.text).toContain('no model service to consult');
+    expect(
+      frames.some((frame) =>
+        frame.kind === 'activity' && frame.activity.type === 'notice' &&
+        frame.activity.level === 'warn' &&
+        frame.activity.text.includes('no model service')
+      ),
+    ).toBe(true);
+  });
+
+  it('warns, and names the remedy, when no route could be resolved', async () => {
+    const advisor = new ScriptedAdvisor(['unused']);
+    const { delegation } = buildDelegation({
+      config: { autonomy: { decide: true } },
+      advisor,
+    });
+    const settled = await delegation.run(never);
+
+    expect(settled.status).toBe('completed');
+    expect(advisor.asked).toEqual([]);
+    const note = settled.notes.find((entry) => entry.level === 'warn');
+    expect(note?.text).toContain('no model route could be resolved');
+    expect(note?.text).toContain(
+      'Set autonomy.advisor.provider and autonomy.advisor.model',
+    );
+  });
+
+  it('names the route when autonomy can act', async () => {
+    const advisor = new ScriptedAdvisor(['unused']);
+    const { delegation } = buildDelegation({
+      config: { autonomy: { decide: true } },
+      advisor,
+      agentRoute: ROUTE,
+    });
+    const settled = await delegation.run(never);
+
+    // A consultation is only spent on a question, and the task raised none.
+    expect(advisor.asked).toEqual([]);
+    const note = settled.notes.find((entry) => entry.level === 'info');
+    expect(note?.text).toContain(
+      'decisions will be put to deepseek-official/deepseek-v4',
+    );
+  });
+
+  it('reports the switches and the route with the outcome', async () => {
+    const advisor = new ScriptedAdvisor(['unused']);
+    const { delegation } = buildDelegation({
+      config: { autonomy: { decide: true } },
+      advisor,
+      agentRoute: ROUTE,
+    });
+    const settled = await delegation.run(never);
+    expect(settled.autonomy).toEqual({
+      decide: true,
+      continue: false,
+      review: false,
+      advisor: ROUTE,
+    });
+  });
+
+  it('reports the switches alone when no route could be named', async () => {
+    const { delegation } = buildDelegation({
+      config: { autonomy: { decide: true, continue: true } },
+    });
+    const settled = await delegation.run(never);
+    expect(settled.autonomy).toEqual({
+      decide: true,
+      continue: true,
+      review: false,
+    });
+  });
+});
+
+describe('an answer that is not the asked-for JSON', () => {
+  it('is read conservatively, and says so', async () => {
+    // Prose instead of {"finished":…} is read as "finished" — the safe
+    // reading — but that is indistinguishable from a genuine approval, so the
+    // note is what tells the caller the arbiter never actually answered.
+    const advisor = new ScriptedAdvisor(['looks done to me']);
+    const { delegation } = buildDelegation({
+      config: { autonomy: { continue: true } },
+      advisor,
+      agentRoute: ROUTE,
+    });
+    const settled = await delegation.run(never);
+
+    expect(settled.rounds).toHaveLength(1);
+    expect(settled.status).toBe('completed');
+    const note = settled.notes.find((entry) => entry.level === 'warn');
+    expect(note?.text).toContain('something other than the requested JSON');
+    expect(note?.text).toContain('looks done to me');
   });
 });
 

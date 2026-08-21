@@ -21,8 +21,9 @@ import type {
 } from '../shared/protocol.ts';
 import { adapterFor } from '../domain/adapters/index.ts';
 import { type ContractMarkers, operatingContract } from '../domain/markers.ts';
+import { resolveModel } from '../domain/models.ts';
 import { oneLineLabel } from '../domain/text.ts';
-import type { AutonomyConfig, Config } from '../config.ts';
+import type { Config } from '../config.ts';
 import { type AccountStore, AMBIENT_ACCOUNT_ID } from './accounts.ts';
 import type { StreamHub } from './channel.ts';
 import { BridgeError, describeError } from './errors.ts';
@@ -116,14 +117,6 @@ export interface RegistryDeps {
   readonly process: ProcessPort;
   readonly config: Config;
   readonly now: () => number;
-  /**
-   * The live autonomy switches.
-   *
-   * A function rather than a value: a person turns autonomy on and off mid
-   * conversation, and a delegation already running must see the change at its
-   * next decision. Absent where only the configured settings are ever used.
-   */
-  readonly autonomy?: () => AutonomyConfig;
 }
 
 /** Run identity, lifecycle and fencing. */
@@ -293,9 +286,15 @@ export class RunRegistry {
     }
 
     // Precedence: the call's own model, then the account's (an endpoint account
-    // names the model its provider serves), then the deployment's default.
-    const model = request.model ?? record?.model ??
-      emptyToUndefined(delegate.defaultModel);
+    // names the model its provider serves), then the deployment's default. The
+    // winner is then put through the catalog, so `opus`, `opus-5` and
+    // `claude-opus-5` all reach the CLI as the one id it accepts, wherever the
+    // name came from.
+    const model = resolveModel(
+      request.cli,
+      request.model ?? record?.model ?? emptyToUndefined(delegate.defaultModel),
+      delegate.extraModels,
+    )?.model;
     const effort = request.effort ?? emptyToUndefined(delegate.defaultEffort);
     const timeoutMs = request.timeoutMs ?? this.deps.config.limits.runTimeoutMs;
     const origin: RunOrigin = {
@@ -581,19 +580,20 @@ export class RunRegistry {
   /**
    * The markers this deployment's contract states.
    *
-   * The next-steps marker is stated only while something will act on it: an
-   * unread marker would silently cut its own text out of the summary the model
-   * receives.
+   * BOTH are always stated, and that is a correctness decision rather than a
+   * simplification. The next-steps marker used to be stated only while
+   * `autonomy.continue` was on, which made one delegate run behave differently
+   * from the next depending on a switch the delegate knows nothing about: the
+   * same task, asked twice, would declare its remaining work once and not the
+   * other time. Every marker this contract states is parsed, and every value it
+   * yields reaches the caller — `nextSteps` as its own field on the outcome —
+   * so nothing is cut out of the summary by stating it. What autonomy decides is
+   * whether to ACT on the declaration, not whether to ask for it.
    * @returns the markers, for both the prompt and the classifier.
    */
   private markers(): ContractMarkers {
     const { marker, nextStepsMarker } = this.deps.config.direction;
-    return {
-      direction: marker,
-      ...(this.deps.autonomy?.() ?? this.deps.config.autonomy).continue
-        ? { nextSteps: nextStepsMarker }
-        : {},
-    };
+    return { direction: marker, nextSteps: nextStepsMarker };
   }
 
   /** Issue the next `<cli>-<n>` id. */

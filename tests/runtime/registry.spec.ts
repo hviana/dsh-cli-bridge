@@ -194,9 +194,14 @@ describe('delegating a task', () => {
     const started = await runs.start(task);
     await started.settled;
     const argv = port.spawns.at(-1)?.spec.argv.join(' ') ?? '';
-    expect(argv).toContain('--model opus');
+    // The alias is canonicalized on the way through, so the CLI is given the id
+    // it accepts however the deployment spelled it.
+    expect(argv).toContain('--model claude-opus-5');
     expect(argv).toContain('--effort high');
-    expect(started.snapshot).toMatchObject({ model: 'opus', effort: 'high' });
+    expect(started.snapshot).toMatchObject({
+      model: 'claude-opus-5',
+      effort: 'high',
+    });
   });
 
   it('lets the call override the deployment default', async () => {
@@ -210,7 +215,9 @@ describe('delegating a task', () => {
       },
     });
     await (await runs.start({ ...task, model: 'sonnet' })).settled;
-    expect(port.spawns.at(-1)?.spec.argv.join(' ')).toContain('--model sonnet');
+    expect(port.spawns.at(-1)?.spec.argv.join(' ')).toContain(
+      '--model claude-sonnet-5',
+    );
   });
 
   it('labels the run with the first line of the prompt', async () => {
@@ -521,7 +528,7 @@ describe('continuing a run', () => {
     await second.settled;
     const argv = port.spawns.at(-1)?.spec.argv.join(' ') ?? '';
     expect(argv).toContain('--resume sess-77');
-    expect(argv).toContain('--model opus');
+    expect(argv).toContain('--model claude-opus-5');
     expect(argv).toContain('--effort high');
     expect(second.snapshot.account).toBe('work');
     expect(port.spawns.at(-1)?.spec.stdio.stdin).toMatchObject({

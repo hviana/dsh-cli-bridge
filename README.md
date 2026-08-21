@@ -130,8 +130,9 @@ Each account stays separate, so you can keep more than one. Just ask:
 - **Several tasks at once** — "Use Codex to add the login page, and Claude Code
   to write the tests." Each runs on its own copy of the project and is merged
   back when done.
-- **A specific model or effort** — you can also name a model, or ask it to think
-  harder.
+- **A specific model or effort** — name a model loosely ("use opus", "use
+  sonnet") or ask it to think harder. `/cli models` lists exactly what each
+  delegate accepts, and anything close is understood.
 
 ### Manual or automatic
 
@@ -142,6 +143,12 @@ To let it work more on its own, type `/cli auto decide on` (it answers its own
 questions), `/cli auto continue on` (it keeps going through remaining work), and
 `/cli auto review on` (it checks the finished work). Use `off` instead of `on`
 to undo any of them.
+
+`/cli` tells you when the switches can actually act. Auto decisions are made by
+the same DeepSeek model that is running the conversation, so a switch needs a
+model route — when there is none, every question still comes to you, and it says
+so instead of quietly doing nothing. A task that ran under auto reports which
+switches were on and which model decided.
 
 ### Watching and steering
 
@@ -157,8 +164,8 @@ line, nothing is lost — you are told there is a conflict to resolve.
 ### Doing it yourself (optional)
 
 You never need to. But typing `/cli` shows what's ready and your accounts, and
-`/cli login claude personal` and `/cli auto` let you drive it by hand if you
-prefer.
+`/cli models`, `/cli login claude personal` and `/cli auto` let you drive it by
+hand if you prefer.
 
 ---
 

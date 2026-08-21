@@ -109,9 +109,12 @@ describe('parseAdvice: decide', () => {
   });
 
   it('falls back to the raw text, which is still a usable direction', () => {
+    // Usable, but not what was asked for — and the flag is what lets the caller
+    // say so instead of presenting a guess as the arbiter's own words.
     expect(parseAdvice('decide', '  keep the alias  ')).toEqual({
       topic: 'decide',
       answer: 'keep the alias',
+      malformed: true,
     });
   });
 });
@@ -139,17 +142,29 @@ describe('parseAdvice: continue', () => {
   });
 
   it.each([
-    ['an unparseable reply', 'I think it is done?'],
-    ['a missing flag', '{"instruction":"do more"}'],
     ['a rejection with no instruction', '{"finished":false}'],
     ['an empty instruction', '{"finished":false,"instruction":"   "}'],
-    ['a wrongly typed flag', '{"finished":"no","instruction":"do more"}'],
   ])('resolves %s toward finished, so nothing can loop', (_label, reply) => {
     expect(parseAdvice('continue', reply)).toEqual({
       topic: 'continue',
       finished: true,
     });
   });
+
+  it.each([
+    ['an unparseable reply', 'I think it is done?'],
+    ['a missing flag', '{"instruction":"do more"}'],
+    ['a wrongly typed flag', '{"finished":"no","instruction":"do more"}'],
+  ])(
+    'resolves %s toward finished, and says the reply was not the asked-for shape',
+    (_label, reply) => {
+      expect(parseAdvice('continue', reply)).toEqual({
+        topic: 'continue',
+        finished: true,
+        malformed: true,
+      });
+    },
+  );
 });
 
 describe('parseAdvice: review', () => {
@@ -171,16 +186,28 @@ describe('parseAdvice: review', () => {
     });
   });
 
-  it.each([
-    ['an unparseable reply', 'looks good to me'],
-    ['a rejection with no fixes', '{"accepted":false}'],
-    ['an unterminated object', '{"accepted":false,"fixes":"x"'],
-  ])('resolves %s toward accepted, so nothing can loop', (_label, reply) => {
-    expect(parseAdvice('review', reply)).toEqual({
+  it('resolves a rejection with no fixes toward accepted, so nothing can loop', () => {
+    expect(parseAdvice('review', '{"accepted":false}')).toEqual({
       topic: 'review',
       accepted: true,
     });
   });
+
+  it.each([
+    ['an unparseable reply', 'looks good to me'],
+    ['an unterminated object', '{"accepted":false,"fixes":"x"'],
+  ])(
+    'resolves %s toward accepted, and says the reply was not the asked-for shape',
+    (_label, reply) => {
+      // A review that silently never reviewed anything is the hardest autonomy
+      // failure to notice, so the reading is conservative AND reported.
+      expect(parseAdvice('review', reply)).toEqual({
+        topic: 'review',
+        accepted: true,
+        malformed: true,
+      });
+    },
+  );
 
   it('recovers an answer the model wrapped in an array', () => {
     // Extracting a well-formed object is strictly better than discarding it:

@@ -21,8 +21,13 @@ employment, you confirm that your employer consents to it.
 - The full gate is `pnpm run check` — typecheck, lint, test, build, and verify
   the published artifacts.
 - Nothing in the suite reaches the internet, and no test needs a real Claude
-  Code or Codex install. See the **Development** section of the README for the
-  seams the tests inject, and the three suites that deliberately do not.
+  Code or Codex install. The seams the tests inject live in `tests/support/` — a
+  fake process port, in-memory files, and scripted advisor and human.
+- When a vendor ships a new model, add it to `src/domain/models.ts` — one entry
+  per id, with its aliases and a one-line summary. Every surface reads that one
+  catalog: the tool instructions, `/cli models`, and the unknown-name warnings.
+  Deployments extend it per delegate through the `extraModels` config without
+  patching the plugin.
 - A new runtime dependency changes the inlined bundles, so run
   `pnpm run notices` and commit the regenerated
   [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md) with it.
