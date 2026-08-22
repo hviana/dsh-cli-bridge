@@ -35,6 +35,8 @@ export interface BatchTask {
   readonly account?: string;
   readonly model?: string;
   readonly effort?: EffortLevel;
+  /** Wall-clock budget for one run of this task; omitted uses the deployment default. */
+  readonly timeoutMs?: number;
 }
 
 /** What one call asked for. */
@@ -67,10 +69,12 @@ export interface BatchDeps extends Omit<DelegationDeps, 'evidence'> {
   readonly nextDelegationId: () => DelegationId;
   /**
    * Lineage for a continuation: the settled run whose delegate session carries
-   * on, and the delegation it carries on from.
+   * on — or the delegate session itself, when the run has been trimmed — and
+   * the delegation it carries on from.
    */
   readonly inherit?: {
-    readonly resumeFrom: RunId;
+    readonly resumeFrom?: RunId;
+    readonly resumeSession?: string;
     readonly parent: DelegationId;
   };
   /**
@@ -141,6 +145,7 @@ export class Batch {
       ...task.account === undefined ? {} : { account: task.account },
       ...task.model === undefined ? {} : { model: task.model },
       ...task.effort === undefined ? {} : { effort: task.effort },
+      ...task.timeoutMs === undefined ? {} : { timeoutMs: task.timeoutMs },
       ...this.request.sessionId === undefined
         ? {}
         : { sessionId: this.request.sessionId },
@@ -149,8 +154,13 @@ export class Batch {
         : { callId: this.request.callId },
       ...this.request.agent === undefined ? {} : { agent: this.request.agent },
       ...this.deps.inherit === undefined ? {} : {
-        resumeFrom: this.deps.inherit.resumeFrom,
         parent: this.deps.inherit.parent,
+        ...this.deps.inherit.resumeFrom === undefined
+          ? {}
+          : { resumeFrom: this.deps.inherit.resumeFrom },
+        ...this.deps.inherit.resumeSession === undefined
+          ? {}
+          : { resumeSession: this.deps.inherit.resumeSession },
       },
     }, {
       runs: this.deps.runs,

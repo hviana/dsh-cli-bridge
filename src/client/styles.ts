@@ -38,6 +38,7 @@ export const STYLES = `
 }
 .${CSS_PREFIX}-badge[data-status="running"], .${CSS_PREFIX}-badge[data-status="starting"] { opacity: 1; }
 .${CSS_PREFIX}-badge[data-status="failed"] { color: #d64545; }
+.${CSS_PREFIX}-badge[data-status="timed_out"] { color: #c98a1b; }
 .${CSS_PREFIX}-badge[data-status="needs_direction"] { color: #c98a1b; }
 .${CSS_PREFIX}-badge[data-status="completed"] { color: #2f855a; }
 .${CSS_PREFIX}-badge[data-status="awaiting-human"] { color: #c98a1b; opacity: 1; }

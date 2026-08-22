@@ -441,19 +441,92 @@ describe('continuing a delegation', () => {
     expect((await running)[0]?.snapshot.status).toBe('completed');
   });
 
-  it('refuses one whose rounds retention has already dropped', async () => {
-    const { operations } = build({ config: { limits: { retainedRuns: 1 } } });
+  it('resumes from the persisted handle once retention dropped the delegation and its round', async () => {
+    const { operations, process } = build({
+      config: { limits: { retainedRuns: 1 } },
+    });
     const first = await delegate(operations);
     await delegate(operations);
     await delegate(operations);
-    // The first delegation is gone with its rounds; the second is still tracked
-    // but its round has been evicted from the registry.
-    await expect(
-      operations.replyToDelegation(first.snapshot.id, 'carry on', {
-        signal: never,
-      }),
-    )
-      .rejects.toMatchObject({ code: 'UNKNOWN_RUN' });
+    // The first delegation and its round are gone from the live registries, but
+    // its resume handle was persisted when it settled, so the session is still
+    // continuable — retention no longer means "pay for the study again".
+    const resumed = await operations.replyToDelegation(
+      first.snapshot.id,
+      'carry on',
+      { signal: never },
+    );
+    expect(resumed.snapshot).toMatchObject({
+      parent: 'd1',
+      status: 'completed',
+    });
+    expect(process.spawns.at(-1)?.spec.argv.join(' ')).toContain('--resume s1');
+  });
+
+  it('resumes by the delegation’s own session handle once its run has been trimmed', async () => {
+    // The run registry and the delegation registry trim independently, so a
+    // delegation can still be tracked after its last run was evicted. The
+    // session handle lives on the delegation snapshot, so the continuation
+    // resumes it directly rather than losing the work to retention.
+    const { operations, process } = build({
+      config: { limits: { retainedRuns: 1 } },
+    });
+    const first = await delegate(operations);
+    // Churn the run registry without creating delegations, so d1 stays tracked
+    // while its run (claude-1) is evicted.
+    const churn = await operations.startTask({
+      cli: 'claude',
+      prompt: 'churn',
+      cwd: '/repo',
+      permission: 'read-only',
+    });
+    await churn.settled;
+
+    const resumed = await operations.replyToDelegation(
+      first.snapshot.id,
+      'carry on',
+      { signal: never },
+    );
+    expect(resumed.snapshot).toMatchObject({
+      parent: 'd1',
+      status: 'completed',
+    });
+    expect(process.spawns.at(-1)?.spec.argv.join(' ')).toContain('--resume s1');
+  });
+
+  it('resumes a session after a simulated plugin reload, from the persisted ledger', async () => {
+    const first = build();
+    const started = await delegate(first.operations);
+    expect(started.snapshot.delegateSessionId).toBe('s1');
+
+    // A reload is a brand-new operations object over the SAME state directory.
+    // The live registries are empty; only the persisted resume handle remains.
+    const second = build({ files: first.files });
+    expect(second.operations.listDelegations()).toEqual([]);
+
+    const resumed = await second.operations.replyToDelegation(
+      started.snapshot.id,
+      'carry on from the study you already did',
+      { signal: never },
+    );
+    expect(resumed.snapshot).toMatchObject({
+      parent: 'd1',
+      status: 'completed',
+    });
+    expect(second.process.spawns.at(-1)?.spec.argv.join(' ')).toContain(
+      '--resume s1',
+    );
+  });
+
+  it('continues the delegation id sequence past what a previous process persisted', async () => {
+    const first = build();
+    await delegate(first.operations); // persists d1
+
+    const second = build({ files: first.files });
+    const fresh = await delegate(second.operations);
+    // A fresh delegation must not re-mint d1 and overwrite the persisted resume
+    // handle the caller may still be holding.
+    expect(fresh.snapshot.id).toBe('d2');
   });
 
   it('refuses a delegation belonging to another session', async () => {

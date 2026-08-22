@@ -81,6 +81,7 @@ export function toolchainSourceLabel(
 const STATUS_LABELS: Readonly<Record<string, string>> = {
   needs_direction: 'asks you',
   'awaiting-human': 'waiting on you',
+  timed_out: 'timed out',
 };
 
 /** A run or task status, in the watcher's words. */

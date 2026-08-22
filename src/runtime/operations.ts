@@ -18,6 +18,7 @@ import type {
   ControlResponse,
   DelegationId,
   DelegationSnapshot,
+  EffortLevel,
   OutputPipe,
   PermissionMode,
   RunId,
@@ -41,6 +42,7 @@ import {
   type StartedRun,
   type StartTaskRequest,
 } from './registry.ts';
+import { type ResumableSession, SessionLedger } from './sessions.ts';
 import { Toolchain } from './toolchain.ts';
 import { type WorkspaceLease, Workspaces } from './workspace.ts';
 
@@ -73,6 +75,8 @@ export class BridgeOperations {
   readonly runs: RunRegistry;
   readonly directions: DirectionLedger;
   readonly workspaces: Workspaces;
+  /** Persisted resume handles, so a session survives a plugin reload. */
+  readonly sessions: SessionLedger;
   private readonly merges = new MergeQueue();
   private readonly tracked = new Map<DelegationId, Tracked>();
   private readonly advisor: AdvisorPort | undefined;
@@ -80,6 +84,8 @@ export class BridgeOperations {
   private readonly inFlight = new Set<Promise<unknown>>();
   private batches = 0;
   private delegations = 0;
+  /** Whether the delegation counter has been advanced past persisted ids. */
+  private seeded = false;
   /**
    * How many batches are currently working in each base path.
    *
@@ -146,6 +152,7 @@ export class BridgeOperations {
       config,
       now: ports.now,
     });
+    this.sessions = new SessionLedger(this.paths, ports.files);
   }
 
   /**
@@ -169,13 +176,14 @@ export class BridgeOperations {
    * @returns one entry per task, in the order they were asked for.
    */
   async startBatch(request: StartBatchRequest): Promise<BatchEntry[]> {
-    this.batches += 1;
     try {
-      // The claim and its release bracket the whole batch — construction
-      // included — so no path out of here can leave the base counted forever.
+      // The claim is synchronous on purpose: two single-task calls issued back
+      // to back must both see the base already claimed before either yields,
+      // or `auto` isolation cannot tell the second one apart.
       const baseContended = this.claimBase(request.base);
+      await this.ensureCounterSeeded();
       const batch = new Batch({
-        id: `b${String(this.batches)}` satisfies BatchId,
+        id: this.mintBatchId(),
         tasks: request.tasks,
         permission: request.permission,
         base: request.base,
@@ -186,7 +194,9 @@ export class BridgeOperations {
         ...request.callId === undefined ? {} : { callId: request.callId },
         ...request.agent === undefined ? {} : { agent: request.agent },
       }, this.batchDeps());
-      return await this.track(batch.run(request.signal));
+      const entries = await this.track(batch.run(request.signal));
+      await this.persistSettled(entries);
+      return entries;
     } finally {
       this.releaseBase(request.base);
     }
@@ -210,50 +220,173 @@ export class BridgeOperations {
     message: string,
     request: Omit<StartBatchRequest, 'tasks' | 'permission' | 'base'>,
   ): Promise<BatchEntry> {
-    const previous =
-      this.tracking(delegation, request.sessionId).delegation.state;
-    const lastRun = previous.rounds.at(-1);
-    if (previous.finishedAt === undefined || lastRun === undefined) {
+    await this.ensureCounterSeeded();
+    const tracked = this.tracked.get(delegation);
+    if (
+      tracked !== undefined &&
+      this.visible(tracked.delegation.state, request.sessionId)
+    ) {
+      return this.continueLive(tracked.delegation.state, message, request);
+    }
+    // Not tracked here: after a plugin reload the delegation survives only as a
+    // persisted resume handle. The caller is still holding the id from the
+    // earlier tool result, so honouring it is what keeps the delegate's session
+    // resumable across a restart.
+    const persisted = await this.sessions.get(delegation, request.sessionId);
+    if (persisted === undefined) {
+      throw new BridgeError(
+        `no delegation named ${JSON.stringify(delegation)}`,
+        'UNKNOWN_RUN',
+      );
+    }
+    return this.continuePersisted(persisted, message, request);
+  }
+
+  /**
+   * Continue a delegation this process is still tracking.
+   * @param previous - the settled delegation.
+   * @param message - what to tell the delegate.
+   * @param request - the conditions the continuation runs under.
+   * @returns the entry for the continuation.
+   */
+  private async continueLive(
+    previous: DelegationSnapshot,
+    message: string,
+    request: Omit<StartBatchRequest, 'tasks' | 'permission' | 'base'>,
+  ): Promise<BatchEntry> {
+    if (previous.finishedAt === undefined) {
       // The two live states want different refusals. A delegation mid-question
       // is waiting on the PERSON, and a model that "helps" by replying would be
       // answering somebody else's question; one mid-round simply cannot be
-      // continued yet. Both are still the same error, so the caller does not
-      // retry a corrected call that could not exist.
+      // continued yet.
       const waiting = previous.status === 'awaiting-human';
       throw new BridgeError(
         waiting
-          ? `delegation ${delegation} is waiting for the user to answer its question; only the user's answer resumes it — do not answer on their behalf`
-          : `delegation ${delegation} is still running`,
+          ? `delegation ${previous.id} is waiting for the user to answer its question; only the user's answer resumes it — do not answer on their behalf`
+          : `delegation ${previous.id} is still running`,
         'INVALID_REQUEST',
       );
     }
-    // The delegate session lives on the RUN, so a round dropped by retention —
-    // or a delegate that never named a session — cannot be resumed. Finding
-    // that out here costs nothing; finding it out later would already have cut
-    // a worktree for work that cannot happen.
-    const resumable = this.runs.list(request.sessionId)
-      .some((run) => run.id === lastRun && run.delegateSessionId !== undefined);
-    if (!resumable) {
+    // The delegate session is the expensive asset this whole plugin exists to
+    // reuse. It lives on the RUN while that run is retained, and on the
+    // delegation snapshot forever after — so a continuation resumes it whether
+    // the round is still listed or was trimmed by retention. Only a delegate
+    // that never named a session is truly unresumable.
+    const lastRun = previous.rounds.at(-1);
+    const retained = lastRun === undefined
+      ? undefined
+      : this.runs.list(request.sessionId)
+        .find((run) =>
+          run.id === lastRun && run.delegateSessionId !== undefined
+        );
+    const delegateSession = retained?.delegateSessionId ??
+      previous.delegateSessionId;
+    if (delegateSession === undefined) {
       throw new BridgeError(
-        `delegation ${delegation} left no delegate session to resume; delegate the work afresh`,
+        `delegation ${previous.id} left no delegate session to resume; delegate the work afresh`,
         'INVALID_REQUEST',
       );
     }
+    return this.runContinuation(
+      {
+        cli: previous.cli,
+        account: previous.account,
+        ...previous.model === undefined ? {} : { model: previous.model },
+        ...previous.effort === undefined ? {} : { effort: previous.effort },
+        permission: previous.permission,
+        ...previous.timeoutMs === undefined
+          ? {}
+          : { timeoutMs: previous.timeoutMs },
+      },
+      this.baseOf(previous),
+      retained !== undefined
+        ? { resumeFrom: retained.id, parent: previous.id }
+        : { resumeSession: delegateSession, parent: previous.id },
+      previous.batch,
+      message,
+      request,
+    );
+  }
 
-    const base = this.baseOf(previous);
+  /**
+   * Continue a delegation that only a persisted resume handle remembers.
+   * @param persisted - the resume handle written before the reload.
+   * @param message - what to tell the delegate.
+   * @param request - the conditions the continuation runs under.
+   * @returns the entry for the continuation.
+   */
+  private async continuePersisted(
+    persisted: ResumableSession,
+    message: string,
+    request: Omit<StartBatchRequest, 'tasks' | 'permission' | 'base'>,
+  ): Promise<BatchEntry> {
+    return this.runContinuation(
+      {
+        cli: persisted.cli,
+        account: persisted.account,
+        ...persisted.model === undefined ? {} : { model: persisted.model },
+        ...persisted.effort === undefined ? {} : { effort: persisted.effort },
+        permission: persisted.permission,
+        ...persisted.timeoutMs === undefined
+          ? {}
+          : { timeoutMs: persisted.timeoutMs },
+      },
+      persisted.base,
+      {
+        resumeSession: persisted.delegateSessionId,
+        parent: persisted.delegation,
+      },
+      this.mintBatchId(),
+      message,
+      request,
+    );
+  }
+
+  /**
+   * Run one continuation batch, then persist its settled resume handle.
+   * @param origin - the conditions the resumed delegate runs under.
+   * @param base - the workspace the continuation runs against.
+   * @param inherit - the resume handle, by run id or by delegate session id.
+   * @param batchId - id for the continuation batch.
+   * @param message - what to tell the delegate.
+   * @param request - the conditions the continuation runs under.
+   * @returns the entry for the continuation.
+   */
+  private async runContinuation(
+    origin: {
+      readonly cli: CliId;
+      readonly account: string;
+      readonly model?: string;
+      readonly effort?: EffortLevel;
+      readonly permission: PermissionMode;
+      readonly timeoutMs?: number;
+    },
+    base: string,
+    inherit: {
+      readonly resumeFrom?: RunId;
+      readonly resumeSession?: string;
+      readonly parent: DelegationId;
+    },
+    batchId: BatchId,
+    message: string,
+    request: Omit<StartBatchRequest, 'tasks' | 'permission' | 'base'>,
+  ): Promise<BatchEntry> {
     try {
       // Same bracket as startBatch: the claim and its release cover every path.
       const baseContended = this.claimBase(base);
       const batch = new Batch({
-        id: previous.batch,
+        id: batchId,
         tasks: [{
-          cli: previous.cli,
+          cli: origin.cli,
           prompt: message,
-          account: previous.account,
-          ...previous.model === undefined ? {} : { model: previous.model },
-          ...previous.effort === undefined ? {} : { effort: previous.effort },
+          account: origin.account,
+          ...origin.model === undefined ? {} : { model: origin.model },
+          ...origin.effort === undefined ? {} : { effort: origin.effort },
+          ...origin.timeoutMs === undefined
+            ? {}
+            : { timeoutMs: origin.timeoutMs },
         }],
-        permission: previous.permission,
+        permission: origin.permission,
         base,
         baseContended,
         ...request.sessionId === undefined
@@ -261,7 +394,7 @@ export class BridgeOperations {
           : { sessionId: request.sessionId },
         ...request.callId === undefined ? {} : { callId: request.callId },
         ...request.agent === undefined ? {} : { agent: request.agent },
-      }, this.batchDeps({ resumeFrom: lastRun, parent: delegation }));
+      }, this.batchDeps(inherit));
       const [entry] = await this.track(batch.run(request.signal));
       /* v8 ignore next -- a one-task batch always yields one entry. */
       if (entry === undefined) {
@@ -270,6 +403,7 @@ export class BridgeOperations {
           'INVALID_REQUEST',
         );
       }
+      await this.persistSession(entry.snapshot);
       return entry;
     } finally {
       this.releaseBase(base);
@@ -515,12 +649,81 @@ export class BridgeOperations {
   }
 
   /**
+   * Continue the delegation-id sequence past whatever a previous process
+   * already persisted, so a fresh `d<n>` can never overwrite an older resume
+   * handle. Runs once per process.
+   */
+  private async ensureCounterSeeded(): Promise<void> {
+    if (this.seeded) return;
+    this.seeded = true;
+    const max = await this.sessions.maxDelegationNumber();
+    this.delegations = Math.max(this.delegations, max);
+  }
+
+  /** Mint the next batch id, keeping identity with the registry that owns it. */
+  private mintBatchId(): BatchId {
+    this.batches += 1;
+    return `b${String(this.batches)}`;
+  }
+
+  /**
+   * Persist every settled delegation of a batch that named a delegate session.
+   *
+   * The resume handle is the cheap pointer that unlocks the delegate's expensive
+   * context after a reload, so it is written even for a `timed_out` or `failed`
+   * delegation — the states where losing the pointer costs the most.
+   * @param entries - the settled delegations.
+   */
+  private async persistSettled(entries: readonly BatchEntry[]): Promise<void> {
+    await Promise.all(
+      entries.map((entry) => this.persistSession(entry.snapshot)),
+    );
+  }
+
+  /** Persist one settled delegation's resume handle, when it has one. */
+  private async persistSession(snapshot: DelegationSnapshot): Promise<void> {
+    if (
+      snapshot.delegateSessionId === undefined ||
+      snapshot.finishedAt === undefined
+    ) {
+      return;
+    }
+    await this.sessions.record({
+      delegation: snapshot.id,
+      cli: snapshot.cli,
+      account: snapshot.account,
+      ...snapshot.model === undefined ? {} : { model: snapshot.model },
+      ...snapshot.effort === undefined ? {} : { effort: snapshot.effort },
+      permission: snapshot.permission,
+      ...snapshot.timeoutMs === undefined
+        ? {}
+        : { timeoutMs: snapshot.timeoutMs },
+      delegateSessionId: snapshot.delegateSessionId,
+      base: snapshot.workspace.origin ?? snapshot.workspace.path,
+      ...snapshot.parent === undefined ? {} : { parent: snapshot.parent },
+      batch: snapshot.batch,
+      label: snapshot.label,
+      ...snapshot.sessionId === undefined
+        ? {}
+        : { sessionId: snapshot.sessionId },
+      finishedAt: snapshot.finishedAt,
+    });
+  }
+
+  /**
    * The collaborators every batch shares.
-   * @param inherit - lineage for a continuation: the run to resume and the
+   * @param inherit - lineage for a continuation: the run to resume — or the
+   *   delegate session itself when the run has been trimmed — and the
    *   delegation it continues.
    * @returns the dependencies.
    */
-  private batchDeps(inherit?: { resumeFrom: RunId; parent: DelegationId }) {
+  private batchDeps(
+    inherit?: {
+      resumeFrom?: RunId;
+      resumeSession?: string;
+      parent: DelegationId;
+    },
+  ) {
     return {
       runs: this.runs,
       hub: this.hub,

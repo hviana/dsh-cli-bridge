@@ -121,6 +121,25 @@ describe('failures are reported, not answered', () => {
       'finish',
     );
   });
+
+  it('finishes a timed-out round as resumable, never as a failure to fix', () => {
+    const end: RunEnd = {
+      status: 'timed_out',
+      summary: 'Step one done.',
+      error: 'timed out after 3600000ms',
+      durationMs: 3_600_000,
+    };
+    const step = nextStep(
+      facts({
+        end,
+        autonomy: ON({ decide: true, continue: true, review: true }),
+      }),
+    );
+    expect(step).toEqual({
+      kind: 'finish',
+      reason: 'the round timed out; its session is preserved and resumable',
+    });
+  });
 });
 
 describe('the round budget is a hard stop', () => {

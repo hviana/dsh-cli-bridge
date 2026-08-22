@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_DIRECTION_MARKER as ASK,
   DEFAULT_NEXT_STEPS_MARKER as NEXT,
+  formatBudget,
   operatingContract,
   splitMarkers,
 } from '../../src/domain/markers.ts';
@@ -23,6 +24,29 @@ describe('operatingContract', () => {
     expect(operatingContract(both)).toContain(
       'at most once, as the last lines',
     );
+  });
+
+  it('states the time budget only when one is set', () => {
+    expect(operatingContract(both)).not.toContain('time budget');
+    expect(operatingContract(both, 3_600_000)).toContain(
+      'time budget of about 1 hour',
+    );
+  });
+
+  it('tells the delegate to declare remaining work within its budget', () => {
+    const contract = operatingContract(both, 3_600_000);
+    expect(contract).toContain('complete, useful phase');
+    expect(contract).toContain(`\`${NEXT}\` line naming exactly what remains`);
+  });
+});
+
+describe('formatBudget', () => {
+  it('spells each magnitude in the words a delegate reads naturally', () => {
+    expect(formatBudget(500)).toBe('500 milliseconds');
+    expect(formatBudget(90_000)).toBe('1 minute');
+    expect(formatBudget(120_000)).toBe('2 minutes');
+    expect(formatBudget(3_600_000)).toBe('1 hour');
+    expect(formatBudget(7_200_000)).toBe('2 hours');
   });
 });
 

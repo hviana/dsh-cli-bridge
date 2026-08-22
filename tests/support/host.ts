@@ -160,9 +160,11 @@ export function buildOperations(options: {
    * without an explicit model is in, where autonomy has no route to run on.
    */
   defaultRoute?: { provider?: string; model?: string };
+  /** The file store; pass one shared across builds to simulate a reload. */
+  files?: MemoryFiles;
 } = {}) {
   const config: ResolvedConfig = new Config(options.config ?? {});
-  const files = new MemoryFiles();
+  const files = options.files ?? new MemoryFiles();
   const clock = fakeClock();
   const process = new FakeProcessPort((spec) =>
     options.script?.(spec.argv) ?? { stdout: ['1.0.0'] }

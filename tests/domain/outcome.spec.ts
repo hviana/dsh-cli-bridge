@@ -133,14 +133,34 @@ describe('classifyOutcome precedence', () => {
     expect(outcome.question).toBeUndefined();
   });
 
-  it('treats a timeout as a failure even though it cancels the process', () => {
+  it('treats a timeout as a resumable state, not a failure', () => {
     const outcome = classify({
       cancelled: true,
       timedOut: true,
       durationMs: 60_000,
     });
-    expect(outcome.status).toBe('failed');
+    expect(outcome.status).toBe('timed_out');
     expect(outcome.error).toBe('timed out after 60000ms');
+  });
+
+  it('preserves what the delegate reported before the deadline cut it off', () => {
+    const outcome = classify({
+      timedOut: true,
+      durationMs: 60_000,
+      state: {
+        finalMessage:
+          `Step one done.\n${DEFAULT_NEXT_STEPS_MARKER} wire the router`,
+      },
+      markers: {
+        direction: DEFAULT_DIRECTION_MARKER,
+        nextSteps: DEFAULT_NEXT_STEPS_MARKER,
+      },
+    });
+    expect(outcome).toMatchObject({
+      status: 'timed_out',
+      summary: 'Step one done.',
+      nextSteps: 'wire the router',
+    });
   });
 });
 

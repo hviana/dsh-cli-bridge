@@ -341,7 +341,7 @@ export class RunRegistry {
       const { preamble } = this.deps.config.direction;
       const plan = adapter.planTask({
         prompt: preamble
-          ? `${operatingContract(markers)}\n\n${request.prompt}`
+          ? `${operatingContract(markers, timeoutMs ?? 0)}\n\n${request.prompt}`
           : request.prompt,
         permission: request.permission,
         cwd: request.cwd,

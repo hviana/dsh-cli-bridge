@@ -509,6 +509,43 @@ describe('failure and cancellation', () => {
   });
 });
 
+describe('a run that outlives its budget', () => {
+  it('settles as timed_out, not failed, and keeps the resume handle', async () => {
+    const config = configOf();
+    const { runs, port } = build({
+      config: { limits: { ...config.limits, runTimeoutMs: 10 } },
+      script: (argv) =>
+        argv.includes('--print')
+          ? {
+            stdout: [
+              '{"type":"system","subtype":"init","session_id":"sess-77"}\n',
+            ],
+            hold: true,
+          }
+          : { stdout: ['1.0.0'] },
+    });
+    const started = await runs.start(task);
+    const end = await started.settled;
+    expect(end).toMatchObject({
+      status: 'timed_out',
+      error: expect.stringContaining('timed out after'),
+    });
+    expect(runs.get(started.snapshot.id).delegateSessionId).toBe('sess-77');
+
+    // The deadline killed the process, not the session: the same session can
+    // still be resumed under the original conditions.
+    const resumed = await runs.reply({
+      run: started.snapshot.id,
+      message: 'carry on from where you left off',
+    });
+    expect(port.spawns.at(-1)?.spec.argv.join(' ')).toContain(
+      '--resume sess-77',
+    );
+    runs.cancel(resumed.snapshot.id);
+    await resumed.settled;
+  });
+});
+
 describe('continuing a run', () => {
   it('resumes the delegate session under the original conditions', async () => {
     const { runs, accounts, port } = build();

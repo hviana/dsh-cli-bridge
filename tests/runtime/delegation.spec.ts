@@ -511,6 +511,33 @@ describe('bounds and failures', () => {
     expect(advisor.asked).toEqual([]);
   });
 
+  it('settles a timed-out round as resumable, with the session surfaced', async () => {
+    const { delegation } = buildDelegation({
+      config: { limits: { runTimeoutMs: 10 } },
+      script: (argv) => (argv.includes('--print')
+        ? {
+          stdout: [
+            '{"type":"system","subtype":"init","session_id":"s1"}\n',
+          ],
+          hold: true,
+        }
+        : { stdout: ['1.0.0'] }),
+    });
+    const settled = await delegation.run(never);
+    expect(settled.status).toBe('timed_out');
+    expect(settled.delegateSessionId).toBe('s1');
+    expect(settled.end?.error).toContain('timed out after');
+  });
+
+  it('resumes a session by id when a continuation has no run to reply to', async () => {
+    const { delegation, process } = buildDelegation({
+      request: { resumeSession: 's1' },
+    });
+    const settled = await delegation.run(never);
+    expect(settled.status).toBe('completed');
+    expect(process.spawns.at(-1)?.spec.argv.join(' ')).toContain('--resume s1');
+  });
+
   it('stops when the caller cancels', async () => {
     const control = new AbortController();
     const { delegation } = buildDelegation({

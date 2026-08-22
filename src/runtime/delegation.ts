@@ -76,6 +76,14 @@ export interface DelegationRequest {
   readonly workspace: WorkspaceState;
   readonly sessionId?: string;
   readonly callId?: string;
+  /** Wall-clock budget for one run; omitted uses the deployment default. */
+  readonly timeoutMs?: number;
+  /**
+   * The delegate's own session identity to resume, when a continuation cannot
+   * resume by run id (the run was trimmed by retention). Mutually exclusive in
+   * practice with {@link resumeFrom}.
+   */
+  readonly resumeSession?: string;
   /** The calling agent, for the human's question and the advisor's route. */
   readonly agent?: Agent;
   /**
@@ -165,6 +173,9 @@ export class Delegation {
         ? {}
         : { sessionId: request.sessionId },
       ...request.callId === undefined ? {} : { callId: request.callId },
+      ...request.timeoutMs === undefined
+        ? {}
+        : { timeoutMs: request.timeoutMs },
     };
     this.lastRun = request.resumeFrom;
     this.publish();
@@ -292,6 +303,12 @@ export class Delegation {
           ...this.request.callId === undefined
             ? {}
             : { callId: this.request.callId },
+          ...this.request.timeoutMs === undefined
+            ? {}
+            : { timeoutMs: this.request.timeoutMs },
+          ...this.request.resumeSession === undefined
+            ? {}
+            : { resume: this.request.resumeSession },
           // Honoured only while the round waits for a free delegate slot; once
           // it is running, the listener below is what stops it.
           signal,
@@ -324,7 +341,9 @@ export class Delegation {
       if (signal.aborted) cancel();
       else signal.addEventListener('abort', cancel, { once: true });
       try {
-        return await started.settled;
+        const end = await started.settled;
+        this.captureSession(started.snapshot.id);
+        return end;
       } finally {
         signal.removeEventListener('abort', cancel);
       }
@@ -726,6 +745,30 @@ export class Delegation {
     return last === undefined
       ? undefined
       : this.deps.runs.endOf(last, this.request.sessionId);
+  }
+
+  /**
+   * Copy a settled round's delegate session onto the delegation snapshot.
+   *
+   * The session id is bound onto the RUN only once the delegate's stream has
+   * started, so it is read back from the registry after the round settles
+   * rather than from the snapshot the start call returned. Carrying it on the
+   * delegation — not just the run — is what lets a continuation resume the
+   * session even after the run itself has been trimmed by retention.
+   * @param run - the round's run id.
+   */
+  private captureSession(run: RunId): void {
+    let session: string | undefined;
+    try {
+      session = this.deps.runs.get(run, this.request.sessionId)
+        .delegateSessionId;
+    } catch {
+      return;
+    }
+    if (session === undefined || session === this.snapshot.delegateSessionId) {
+      return;
+    }
+    this.snapshot = { ...this.snapshot, delegateSessionId: session };
   }
 
   /** Collect the files the delegate reported touching, for a review's evidence. */

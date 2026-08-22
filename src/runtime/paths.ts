@@ -48,6 +48,11 @@ export class BridgePaths {
     return join(this.root, 'accounts.json');
   }
 
+  /** The resumable-session ledger — the resume handles that survive a reload. */
+  get sessions(): string {
+    return join(this.root, 'sessions.json');
+  }
+
   /** The managed toolchain's bookkeeping document. */
   get toolchainState(): string {
     return join(this.root, 'toolchain', 'state.json');

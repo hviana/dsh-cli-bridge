@@ -346,6 +346,34 @@ describe('cli_delegate', () => {
     expect(process.spawns.at(-1)?.aborted).toBe(true);
   });
 
+  it('states the time budget in the contract when the caller sets one', async () => {
+    const { tools, process } = mount();
+    await tools.registered.get('cli_delegate')!.execute(
+      { prompt: 'x', timeoutMs: 3_600_000 },
+      execution(),
+    );
+    expect(process.spawns.at(-1)?.spec.stdio.stdin).toMatchObject({
+      data: expect.stringContaining('time budget of about 1 hour'),
+    });
+  });
+
+  it('tells the caller to resume a timed-out delegation, never to start over', () => {
+    const tool = mount().tools.registered.get('cli_delegate')!;
+    const text = renderText(tool, { prompt: 'x' }, {
+      delegation: 'd1',
+      cli: 'claude',
+      account: 'ambient',
+      status: 'timed_out',
+      error: 'timed out after 3629000ms',
+      summary: 'Studied the project.',
+      rounds: 1,
+      durationMs: 3629000,
+    });
+    expect(text).toContain('Timed out: timed out after 3629000ms');
+    expect(text).toContain('cli_reply(delegation: "d1"');
+    expect(text).toContain('Do NOT start a new task');
+  });
+
   it('describes the pending call as an execution card', () => {
     const view = mount().tools.registered.get('cli_delegate')!.presentCall?.({
       prompt: 'Fix the build\nthen test',

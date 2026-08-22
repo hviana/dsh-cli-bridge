@@ -44,9 +44,11 @@ export interface OutcomeInput {
  * Classify one finished run.
  *
  * Precedence is fixed and total, so the same inputs always produce the same
- * verdict: cancellation, then failure, then a direction request, then success.
- * A delegate that both failed and asked a question failed — an answer to a
- * question the run can no longer act on would waste a turn.
+ * verdict: cancellation, then a timeout, then failure, then a direction
+ * request, then success. A delegate that both failed and asked a question
+ * failed — an answer to a question the run can no longer act on would waste a
+ * turn. A timeout is kept apart from a failure on purpose: the session survives
+ * a deadline, so a timeout is a resumable state, not a dead end.
  * @param input - everything known at process close.
  * @returns the terminal facts, bounded and safe to hand to a model.
  */
@@ -65,6 +67,21 @@ export function classifyOutcome(input: OutcomeInput): RunEnd {
 
   if (input.cancelled && !input.timedOut) {
     return { ...base, status: 'cancelled' };
+  }
+
+  // A deadline is not a failure of the work: the delegate session is intact on
+  // disk and resumable, and whatever the delegate managed to report — its
+  // summary, its declared next steps — is preserved below so a continuation
+  // can carry on instead of restudying the project from zero.
+  if (input.timedOut) {
+    return {
+      ...base,
+      status: 'timed_out',
+      error: boundHead(
+        `timed out after ${String(input.durationMs)}ms`,
+        input.errorMaxBytes,
+      ),
+    };
   }
 
   const failure = failureOf(input);
@@ -93,7 +110,6 @@ export function classifyOutcome(input: OutcomeInput): RunEnd {
  * @returns the reason, or `undefined` when the run did not fail.
  */
 function failureOf(input: OutcomeInput): string | undefined {
-  if (input.timedOut) return `timed out after ${String(input.durationMs)}ms`;
   if (input.state.failure !== undefined) return input.state.failure;
   if (input.signal !== null) return `terminated by ${input.signal}`;
   if (input.exitCode !== null && input.exitCode !== 0) {

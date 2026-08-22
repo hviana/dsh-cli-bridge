@@ -43,9 +43,13 @@ export interface MarkerSplit {
 /**
  * State the contract in the delegated prompt.
  * @param markers - the markers this run will be read back through.
+ * @param timeboxMs - wall-clock budget for this one run; `0`/absent states none.
  * @returns instruction text naming exactly the conventions that are parsed.
  */
-export function operatingContract(markers: ContractMarkers): string {
+export function operatingContract(
+  markers: ContractMarkers,
+  timeboxMs = 0,
+): string {
   const lines = [
     'Operating contract for this run:',
     '- Finish the work you can finish without asking. Report the result in your final message.',
@@ -58,10 +62,38 @@ export function operatingContract(markers: ContractMarkers): string {
       `  starts with \`${markers.nextSteps}\` followed by what remains, so it can be continued.`,
     );
   }
+  if (timeboxMs > 0) {
+    lines.push(
+      `- You have a time budget of about ${
+        formatBudget(timeboxMs)
+      } for this run. Plan to finish a`,
+      '  complete, useful phase within it. If the whole task cannot fit, finish the phase and',
+      markers.nextSteps === undefined
+        ? '  declare exactly what remains in your final message, so it can be resumed without redoing it.'
+        : `  end your final message with a \`${markers.nextSteps}\` line naming exactly what remains, so it can be resumed without redoing it.`,
+    );
+  }
   lines.push(
     '- Emit each of those lines at most once, as the last lines, and nowhere else in the run.',
   );
   return lines.join('\n');
+}
+
+/** One wall-clock budget, in the shortest words a delegate reads naturally. */
+export function formatBudget(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes >= 1) {
+    if (minutes >= 60 && minutes % 60 === 0) {
+      const hours = minutes / 60;
+      return `${String(hours)} hour${hours === 1 ? '' : 's'}`;
+    }
+    return `${String(minutes)} minute${minutes === 1 ? '' : 's'}`;
+  }
+  const seconds = Math.floor(ms / 1000);
+  if (seconds >= 1) {
+    return `${String(seconds)} second${seconds === 1 ? '' : 's'}`;
+  }
+  return `${String(ms)} milliseconds`;
 }
 
 /** One marker's identity while peeling. */

@@ -70,6 +70,8 @@ export type TerminalRunStatus =
   | 'completed'
   | 'needs_direction'
   | 'failed'
+  /** The run exceeded its wall-clock budget. Its delegate session is preserved and resumable. */
+  | 'timed_out'
   | 'cancelled';
 
 /**
@@ -445,6 +447,21 @@ export interface DelegationSnapshot {
   readonly sessionId?: string;
   /** The tool call that started this delegation, so its card can find it. */
   readonly callId?: string;
+  /**
+   * The delegate's own session identity, once a round has reported it.
+   *
+   * This is the resume handle: a continuation passes it to the CLI's resume
+   * flag so the delegate's conversation — and with it the expensive cached
+   * context — is picked up instead of restudied. It is carried here, not only
+   * on the run, so a delegation keeps the ability to be resumed even after its
+   * runs have been trimmed by retention.
+   */
+  readonly delegateSessionId?: string;
+  /**
+   * Wall-clock budget one run of this delegation was given, in milliseconds;
+   * absent when the caller left it to the deployment default.
+   */
+  readonly timeoutMs?: number;
 }
 
 /** An installed (or missing) delegate CLI, as the panel reports it. */

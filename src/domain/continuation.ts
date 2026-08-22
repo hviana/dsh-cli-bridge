@@ -104,6 +104,18 @@ export function nextStep(facts: RoundFacts): Continuation {
     return { kind: 'finish', reason: `the round ${facts.end.status}` };
   }
 
+  // A timeout settles the delegation so control returns to the caller, but the
+  // delegate's session is intact and resumable — so the caller continues with
+  // `cli_reply`, never by delegating afresh. It is deliberately not run
+  // through `onCompletion`: a timed-out round is not "finished work" to
+  // review or push on automatically.
+  if (facts.end.status === 'timed_out') {
+    return {
+      kind: 'finish',
+      reason: 'the round timed out; its session is preserved and resumable',
+    };
+  }
+
   if (facts.end.status === 'needs_direction') return onQuestion(facts);
   return onCompletion(facts);
 }

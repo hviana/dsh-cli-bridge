@@ -126,9 +126,15 @@ const DELEGATION = {
     },
     status: {
       type: 'string',
-      enum: ['completed', 'needs_direction', 'failed', 'cancelled'],
+      enum: [
+        'completed',
+        'needs_direction',
+        'failed',
+        'timed_out',
+        'cancelled',
+      ],
       description:
-        'completed — done. needs_direction — it asked a question, answer with cli_reply. failed — read "error". cancelled — it was stopped.',
+        'completed — done. needs_direction — it asked a question, answer with cli_reply. failed — read "error". timed_out — the run hit its time budget but its session is preserved; continue it with cli_reply, never start over. cancelled — it was stopped.',
     },
     summary: {
       type: 'string',
@@ -286,6 +292,11 @@ function taskFields(config: Config) {
       description:
         'How hard the delegate thinks, lowest to highest: "low", "medium", "high", "xhigh", "max" — only these five, anything else is refused. Omit for the delegate\'s own default. Codex has no "max": there "max" runs as "xhigh". Raise it for design, debugging and anything underspecified; "low" suits mechanical edits.',
     },
+    timeoutMs: {
+      type: 'number',
+      description:
+        'Wall-clock budget in milliseconds for ONE delegate run (one phase). The delegate is told this budget and asked to finish a coherent phase within it, declaring remaining work with NEXT_STEPS when it cannot finish. On expiry the run is stopped but its session is preserved and resumable with cli_reply — never lost, never re-studied from zero. Omit to use the deployment default.',
+    },
   } as const satisfies ParameterSchemaSpec;
 }
 
@@ -328,7 +339,8 @@ function delegateTool(
       'Then read "status". It tells you your next move, and there is exactly one per status:',
       '- "completed": the work is done. Report "summary" to the user. If "nextSteps" is filled in, work remains — send it on with cli_reply.',
       '- "needs_direction": it stopped to ask the question in "question". Answer it with cli_reply(delegation: "<the delegation field>", message: "<your answer>"). Do NOT start a new task instead.',
-      '- "failed": read "error", fix that cause, then call again.',
+      '- "failed": read "error", fix that cause, then call again. If "error" is a timeout or the delegate still reported a session, the session is preserved — continue it with cli_reply rather than re-paying the study.',
+      '- "timed_out": the run hit its time budget, but its session (context + cached tokens) is preserved. Continue it with cli_reply(delegation: "<the delegation field>", message: "<what to do next>"). NEVER start a new task — that discards the study and pays for it twice.',
       '- "cancelled": it was stopped deliberately. Do not retry unless the user asks.',
       'Read "diagnostics" whenever the outcome is not what you expected — an autonomy setting that could not act, or a model name nobody recognized, is reported there and nowhere else.',
       "The delegate's commands, edits and reasoning are NOT in the result and cannot be fetched afterwards: they went to the user's screen. If you need more than the summary, ask the user.",
@@ -426,7 +438,8 @@ function replyTool(operations: BridgeOperations): ToolDefinition {
     description: [
       'Continue a task that has already run: answer the question it stopped on, or send it more work. It resumes its own session with everything it already did still in context, under the same delegate, account, model and settings — so you never have to restate the task.',
       'Call it as cli_reply(delegation: "<id>", message: "<what to tell it>"). Both are required.',
-      'Use it when a result came back with status "needs_direction" (answer the "question" field), when a result came back "completed" with "nextSteps" still filled in, or when the user asks for a change to work that was just done.',
+      'Use it when a result came back with status "needs_direction" (answer the "question" field), when a result came back "completed" with "nextSteps" still filled in, when a result came back "timed_out" (the session is preserved — continue it), or when the user asks for a change to work that was just done.',
+      'It can also resume a delegation whose session still exists even if the round "failed" for another reason — resuming the session is always cheaper than starting over, because the delegate re-reads its own context instead of re-studying the project.',
       'The result has the same shape as cli_delegate, including a delegation id of its own for the next reply. It can itself come back "needs_direction" — answer that one the same way.',
     ].join('\n'),
     parameters: {
@@ -473,15 +486,15 @@ function replyTool(operations: BridgeOperations): ToolDefinition {
             ? {}
             : { agent: exec.agent, sessionId: exec.agent.id },
         },
-      ).catch((error: unknown) => {
+      ).catch(async (error: unknown) => {
         // A wrong id is the one mistake a caller cannot correct from the
-        // message alone, so the refusal names the ids that DO exist here.
-        throw error instanceof BridgeError && error.code === 'UNKNOWN_RUN'
-          ? new BridgeError(
-            `${error.message}. ${knownDelegations(operations, session)}`,
-            error.code,
-          )
-          : error;
+        // message alone, so the refusal names the ids that DO exist here —
+        // including the resumable sessions a previous process persisted.
+        if (!(error instanceof BridgeError) || error.code !== 'UNKNOWN_RUN') {
+          throw error;
+        }
+        const hint = await knownDelegations(operations, session);
+        throw new BridgeError(`${error.message}. ${hint}`, error.code);
       });
       return project(operations, entry.snapshot);
     },
@@ -773,6 +786,7 @@ function taskOf(args: TaskArgs, config: Config): BatchTask {
     ...args.account === undefined ? {} : { account: args.account },
     ...model === undefined ? {} : { model: model.model },
     ...args.effort === undefined ? {} : { effort: args.effort as EffortLevel },
+    ...args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs },
   };
 }
 
@@ -1027,6 +1041,15 @@ function describe(value: DelegationResult): string {
       );
       if (summary.length > 0) body.push('', summary);
       break;
+    case 'timed_out':
+      body.push(
+        '',
+        `Timed out: ${value.error ?? 'the run exceeded its time budget'}`,
+        '',
+        `Its session is preserved and resumable. Continue it with cli_reply(delegation: "${delegation}", message: "<what to do next>"). Do NOT start a new task — that discards the study and pays for it twice.`,
+      );
+      if (summary.length > 0) body.push('', summary);
+      break;
     case 'cancelled':
       body.push(
         '',
@@ -1251,24 +1274,30 @@ function requireId(op: string, id: string | undefined): string | undefined {
  *
  * Ids are issued per process and a caller can only carry one it was given, so a
  * wrong one is almost always a stale id or an invented one — and the list of
- * live ones is the only thing that distinguishes those two cases.
+ * live delegations plus the resumable sessions a previous process persisted is
+ * what distinguishes those two cases.
  * @param operations - the shared implementation.
  * @param sessionId - the asking session, which fences what it may see.
  * @returns one sentence naming what exists, or saying nothing does.
  */
-function knownDelegations(
+async function knownDelegations(
   operations: BridgeOperations,
   sessionId?: string,
-): string {
-  const live = operations.listDelegations(sessionId);
-  if (live.length === 0) {
+): Promise<string> {
+  const [live, persisted] = await Promise.all([
+    Promise.resolve(operations.listDelegations(sessionId)),
+    operations.sessions.list(sessionId),
+  ]);
+  if (live.length === 0 && persisted.length === 0) {
     // Two causes share this state — the session never delegated anything, or
-    // every delegation it did delegate was forgotten by retention — and "no
-    // task has been delegated yet" told the latter caller something false
-    // about its own history. The remedy is the same either way: start again.
+    // everything it delegated is gone — and "no task has been delegated yet"
+    // told the latter caller something false about its own history. The remedy
+    // is the same either way: start again.
     return 'No task is available to continue in this session right now — finished ones are forgotten once enough newer work has run. Start one with cli_delegate.';
   }
-  return `Tasks you can continue: ${
-    live.map((snapshot) => `${snapshot.id} (${snapshot.status})`).join(', ')
-  }.`;
+  const ids = [
+    ...live.map((snapshot) => `${snapshot.id} (${snapshot.status})`),
+    ...persisted.map((session) => `${session.delegation} (resumable)`),
+  ];
+  return `Tasks you can continue: ${ids.join(', ')}.`;
 }
